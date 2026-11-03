@@ -132,7 +132,11 @@ function decorate(txns) {
   const pocket = cash.allocate(base, store.cashRuns());
   for (const [id, parts] of pocket.splits) {
     const t = decorated.get(id);
-    if (!t || t.isSplit) continue; // a split you made by hand outranks this
+    if (!t) continue;
+    // A split you made by hand outranks this - unless the hand-made split is
+    // the very thing that put the cash in your pocket, in which case these
+    // parts are that split with its cash part broken down.
+    if (t.isSplit && !pocket.hand.has(id)) continue;
     const primary = parts.reduce((a, b) => (b.amount > a.amount ? b : a));
     t.splits = parts;
     t.isSplit = true;
@@ -141,7 +145,10 @@ function decorate(txns) {
     t.why = `cash you itemised: ${parts.map((p) => p.category).join(' + ')}`;
   }
 
-  decorateCache = { rev: store.revision(), n: txns.length, out: [...decorated.values()] };
+  // `base` is kept as well as `out`: it is the transactions as you filed them
+  // - splits and overrides, but not the cash breakdown laid on top - which is
+  // what the pocket has to be worked out from (see pocketNow).
+  decorateCache = { rev: store.revision(), n: txns.length, out: [...decorated.values()], base };
   return decorateCache.out;
 }
 
@@ -151,7 +158,14 @@ function pocketNow() {
   // The cycle today falls in. Cash older than that was spent in a month that has
   // already closed, whatever it was spent on.
   const start = cycleStartOf(cycleMonthOf(isoDay(new Date())));
-  return cash.allocate(all, store.cashRuns(), start);
+  // Worked out from the transactions as YOU filed them - with your splits and
+  // overrides, since a Send Money filed under "Cash Withdrawal" is cash - but
+  // not from decorate()'s finished rows, which already carry this calculation's
+  // own answer. Fed its own output, allocate would find a hand-filed cash part
+  // already broken down into what it bought, count only the unclaimed rest as
+  // cash, and then have nowhere to place the same claims a second time.
+  decorate(all);
+  return cash.allocate(decorateCache.base || all, store.cashRuns(), start);
 }
 
 // Which name rule actually won, for the explanation.
@@ -523,6 +537,10 @@ function openSplitEditor(txn) {
           <button type="button" class="ghost" id="split-add">+ Add part</button>
           <span class="split-rem ${Math.abs(remaining) > 1 ? 'neg' : 'pos'}">${remainderText(remaining)}</span>
         </div>
+        ${txn.type !== 'Withdrawal' && parts.some((p) => p.category === cash.UNCLAIMED_CATEGORY)
+          ? `<p class="hint split-hint">The <b>Cash Withdrawal</b> part counts as cash in your pocket from ${shortDate(txn.date)} —
+             money sent to be drawn out and handed to you. Itemise it on the Cash page like any other withdrawal.</p>`
+          : ''}
         <div class="modal-actions">
           ${existing ? '<button type="button" class="ghost" id="split-remove">Remove split</button>' : ''}
           <button type="button" class="ghost" id="split-cancel">Cancel</button>
@@ -533,6 +551,7 @@ function openSplitEditor(txn) {
     overlay.querySelectorAll('.split-cat').forEach((s) =>
       s.addEventListener('change', () => {
         parts[+s.dataset.i].category = s.value;
+        draw();
       })
     );
     overlay.querySelectorAll('.split-amt').forEach((inp) =>
@@ -3950,6 +3969,13 @@ function wireCategoryPicker() {
     // which is the very thing that lets the list scroll under the finger.)
     const over = (el) => {
       const r = el.getBoundingClientRect();
+      // A select that has just left the page has a rect of nothing, at (0,0) -
+      // and a click fired from the keyboard, or by a script, carries the
+      // coordinates (0,0). The two met when Save on a dialog closed it: the
+      // walk up from the now-detached button found the dialog's own select,
+      // which "contained" the point, and the picker opened over a screen that
+      // had not asked for it.
+      if (!el.isConnected || !r.width || !r.height) return false;
       return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
     };
     let sel = null;

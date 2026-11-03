@@ -26,8 +26,41 @@
 
 import { CATEGORIES } from './rules.js';
 
+/** What the remainder of a withdrawal is called while nothing has claimed it. */
+export const UNCLAIMED_CATEGORY = 'Cash Withdrawal';
+
 /** Money leaving an account as physical cash. Both statements and SMS say 'Withdrawal'. */
 const isWithdrawal = (t) => t.type === 'Withdrawal' && t.direction === 'Out' && t.amount > 0;
+
+/**
+ * How much cash a transaction put in your hand, and what else it was.
+ *
+ * A Withdrawal is the obvious case. The other is money SENT to someone to be
+ * drawn out and handed back - a relative who is near an agent when you are
+ * not - which arrives as an ordinary Send Money and used to vanish into
+ * "Family" with the cash it became counted nowhere. Filing that transaction,
+ * or just the part of a split that was for this, under "Cash Withdrawal" says
+ * what it was, and from then on it is cash in the pocket exactly as if you had
+ * stood at the agent yourself: itemisable, and held against your wallet.
+ *
+ * Returns null for a transaction that put no cash in your hand. `other` is the
+ * rest of a hand-made split, carried so the split can be rebuilt around the
+ * cash part once claims have broken that part up; null for a true withdrawal,
+ * which the pocket owns outright.
+ */
+function drawn(t) {
+  if (isWithdrawal(t)) return { amount: t.amount, other: null };
+  if (t.direction !== 'Out' || !(t.amount > 0)) return null;
+  if (Array.isArray(t.splits) && t.splits.length) {
+    const cash = t.splits.filter((p) => p.category === UNCLAIMED_CATEGORY);
+    if (!cash.length) return null;
+    return {
+      amount: cash.reduce((a, p) => a + (Number(p.amount) || 0), 0),
+      other: t.splits.filter((p) => p.category !== UNCLAIMED_CATEGORY),
+    };
+  }
+  return t.category === UNCLAIMED_CATEGORY ? { amount: t.amount, other: [] } : null;
+}
 
 /** Cash going back IN to an account — a deposit at an agent. Takes it out of the pocket. */
 const isDeposit = (t) => t.type === 'Deposit' && t.direction === 'In' && t.amount > 0;
@@ -35,8 +68,6 @@ const isDeposit = (t) => t.type === 'Deposit' && t.direction === 'In' && t.amoun
 /** The category a deposit's claim is filed under: moved, not spent. */
 export const DEPOSIT_CATEGORY = 'Internal Transfer';
 
-/** What the remainder of a withdrawal is called while nothing has claimed it. */
-export const UNCLAIMED_CATEGORY = 'Cash Withdrawal';
 
 /** Counted short: spent in cash, but you did not say on what. */
 export const UNACCOUNTED_CATEGORY = 'Cash (unaccounted)';
@@ -58,13 +89,17 @@ const day = (iso) => String(iso || '').slice(0, 10);
  * @param {object[]} runs  itemisations: {id, date, category, amount, items[]}
  * @param {string}   since YYYY-MM-DD the current cycle began; older cash is gone
  * @returns {{splits: Map<string, {category: string, amount: number}[]>,
- *            pocket: number, since: string|null, unmatched: number,
- *            claimed: Map<string, {txnId: string, amount: number}[]>}}
+ *            hand: Set<string>, pocket: number, since: string|null,
+ *            unmatched: number, claimed: Map<string, {txnId: string, amount: number}[]>}}
+ *          `hand` names the transactions whose cash was filed by hand rather
+ *          than read as a Withdrawal - their splits in `splits` already carry
+ *          the rest of what the money was, and replace the hand-made split.
  */
 export function allocate(txns, runs = [], since = null) {
   const pool = txns
-    .filter(isWithdrawal)
-    .map((t) => ({ id: t.id, date: day(t.date), left: t.amount, parts: new Map() }))
+    .map((t) => ({ t, d: drawn(t) }))
+    .filter(({ d }) => d && d.amount > 0)
+    .map(({ t, d }) => ({ id: t.id, date: day(t.date), left: d.amount, parts: new Map(), other: d.other }))
     // Newest first, so a claim meets the most recent cash it could have come
     // out of before it meets any older.
     .sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0));
@@ -112,10 +147,17 @@ export function allocate(txns, runs = [], since = null) {
   }
 
   const splits = new Map();
+  const hand = new Set();
   for (const w of pool) {
     if (w.parts.size === 0) continue; // untouched: leave the row exactly as it was
     const parts = [...w.parts.entries()].map(([category, amount]) => ({ category, amount }));
     if (w.left > 0) parts.push({ category: UNCLAIMED_CATEGORY, amount: w.left });
+    // Cash filed by hand was one part of a split; the other parts come back
+    // round it, so the whole still adds up to the transaction.
+    if (w.other) {
+      hand.add(w.id);
+      parts.push(...w.other.map((p) => ({ ...p })));
+    }
     splits.set(w.id, parts.sort((a, b) => b.amount - a.amount));
   }
 
@@ -131,7 +173,7 @@ export function allocate(txns, runs = [], since = null) {
     .filter((w) => w.left > 0 && since && w.date < since)
     .reduce((a, w) => a + w.left, 0);
 
-  return { splits, pocket, lapsed, since: held.length ? held[0].date : null, unmatched, claimed };
+  return { splits, hand, pocket, lapsed, since: held.length ? held[0].date : null, unmatched, claimed };
 }
 
 /**
