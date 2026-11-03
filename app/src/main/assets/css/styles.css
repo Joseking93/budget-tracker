@@ -399,7 +399,23 @@ select.budget-assign { pointer-events: none; }
    which on a phone is several thousand pixels of other people's business before
    you reach anything. It is now a home screen and one view per thing: you go in,
    you come back. Same panels, same ids, different frame. */
-.view { display: flex; flex-direction: column; gap: 14px; }
+/* clip, not hidden: it stops a too-wide child dragging the page sideways
+   without making the view a scroll container, so sticky and fixed children
+   keep working. The dev server still reports the culprit - see
+   warnIfWiderThanScreen in app.js. */
+.view { display: flex; flex-direction: column; gap: 14px; overflow-x: clip; }
+
+/* ---- what the month needs from you ------------------------------------- */
+.attend { display: flex; flex-direction: column; gap: 8px; }
+.attend-row {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  background: var(--warn-soft, var(--card)); border: 1px solid var(--warn-line, var(--card-line));
+  border-radius: var(--r-md); padding: 11px 14px; font: inherit; color: var(--ink); cursor: pointer;
+}
+.attend-row b { font-size: 13.5px; font-weight: 700; }
+.attend-row span { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.attend-row:hover { border-color: var(--card-line-strong); }
+:root[data-look="minted"] .view[data-view="home"] > #home-attend { order: -1; }
 
 .viewbar {
   display: flex; align-items: center; gap: 6px;

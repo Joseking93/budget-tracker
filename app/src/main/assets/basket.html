@@ -301,6 +301,12 @@ textarea{font-family:var(--mono);font-size:12px;width:100%;box-sizing:border-box
     <label class="repl" id="replWrap" hidden>
       <input type="checkbox" id="replBox"><span id="replText"></span>
     </label>
+    <!-- A receipt paid in cash is a claim on the cash in your pocket. Ticked,
+         the slip's total goes to the tracker as an itemised cash run, so it
+         need not be typed a second time on the Cash page. -->
+    <label class="repl" id="cashWrap" hidden>
+      <input type="checkbox" id="cashBox"><span>Paid in cash &mdash; take it off the cash in my pocket</span>
+    </label>
     <div class="sheetbtns">
       <button type="button" class="ghost" id="sheetCancel">Cancel</button>
       <button type="button" class="add" id="sheetAdd">Add items</button>
@@ -598,6 +604,7 @@ window.onReceiptScanning=()=>{
   $('rows').innerHTML='';$('sums').innerHTML='';
   $('sheetMsg').textContent='Reading the receipt…';
   $('sheetAdd').hidden=true;$('sheetCancel').textContent='Cancel';
+  $('cashWrap').hidden=true;$('cashBox').checked=false;
   openSheet();
 };
 
@@ -620,6 +627,7 @@ window.onReceiptScanned=payload=>{
 function drawSheet(){
   const rows=$('rows');rows.innerHTML='';
   $('sheetAdd').hidden=!scanned.length;
+  $('cashWrap').hidden=!scanned.length;
   $('sheetRaw').hidden=!rawRows.length;
   if(!scanned.length){
     $('sums').innerHTML='';
@@ -703,7 +711,8 @@ $('sheetAdd').onclick=()=>{
   // Reversed, so the first row on the receipt ends up at the top of the list.
   add.slice().reverse().forEach((i,k)=>state.items.unshift(
     {id:Date.now()+k,name:i.name.trim(),size:0,unit:'pcs',price:i.price,qty:i.qty}));
-  keepReceipt(add);
+  const kept=keepReceipt(add);
+  if($('cashBox').checked&&kept)claimCash(kept);
   closeSheet();save();render();
 };
 // Copies the camera's own text, which is the only way to tell a misread
@@ -813,13 +822,45 @@ function receiptDate(rows){
   return iso(new Date());
 }
 
-function storeReceipt(items,date,slipTotal,lines){
+/* ---- whose slip it is --------------------------------------------------
+   The shop prints its name at the top and the reader used to throw it away,
+   so every saved receipt was just a date. The names a Nairobi trolley meets
+   are matched first, because OCR mangles them in known ways ("QUICK MART",
+   "QuickMart", "0UICKMART"); failing that, the first line of plain capitals
+   that is not till furniture is taken as the name, which is right more often
+   than it is wrong and is only ever a label. */
+var SHOPS=[
+  [/[q0]u?[i1]ck ?mart/i,'Quickmart'],[/na[i1]vas/i,'Naivas'],[/carrefour/i,'Carrefour'],
+  [/chandarana/i,'Chandarana'],[/cleanshelf/i,'Cleanshelf'],[/tuskys/i,'Tuskys'],
+  [/magunas/i,'Magunas'],[/khetia/i,'Khetias'],[/eastmatt/i,'Eastmatt'],
+  [/goodlife/i,'Goodlife Pharmacy'],[/java house|java\b/i,'Java House'],
+  [/artcaffe/i,'Artcaffe'],[/\bkfc\b/i,'KFC'],
+  [/shell\b/i,'Shell'],[/total ?energies|\btotal\b/i,'TotalEnergies'],
+  [/rubis/i,'Rubis'],[/\bola\b/i,'Ola Energy'],
+];
+var FURNITURE=/cash ?sale|tax ?invoice|receipt|welcome|thank|till|vat|pin\b|tel\b|date|branch|served|cashier|item|qty|total|p\.?o\.? ?box|ltd|plc$/i;
+function receiptShop(rows){
+  const head=(rows||[]).slice(0,8).map(r=>String(r||'').trim());
+  for(const line of head){
+    for(const [re,name] of SHOPS) if(re.test(line)) return name;
+  }
+  for(const line of head){
+    if(line.length<3||line.length>28)continue;
+    if(/\d/.test(line)||FURNITURE.test(line))continue;
+    if(!/^[A-Z][A-Z &'.-]+$/.test(line))continue;
+    return line.toLowerCase().replace(/(^|\s)\S/g,c=>c.toUpperCase());
+  }
+  return '';
+}
+
+function storeReceipt(items,date,slipTotal,lines,shop){
   receipts.unshift({
     id:'r'+Date.now(),
     date:date,
     savedAt:new Date().toISOString(),
     slipTotal:slipTotal,
     lineCount:lines,
+    shop:shop||'',
     items:items.map(i=>({name:String(i.name).trim(),qty:i.qty,price:i.price}))
   });
   receipts.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
@@ -829,7 +870,43 @@ function storeReceipt(items,date,slipTotal,lines){
   return receipts[0];
 }
 function keepReceipt(items){
-  storeReceipt(items,receiptDate(rawRows),receiptTotal,lineCount);
+  return storeReceipt(items,receiptDate(rawRows),receiptTotal,lineCount,receiptShop(rawRows));
+}
+
+/* ---- paid in cash --------------------------------------------------------
+   A receipt paid in cash is a claim on the cash the tracker already counted
+   as spent when it was drawn out, so this adds NO spending - it files the
+   slip under what it bought and takes its total off the pocket. Written
+   straight into the tracker's store, same origin, the row shape the tracker's
+   own addCashRun writes; the tracker reads it on its next load. The slip's
+   printed total wins over the sum of the lines, because the total is what
+   was handed over. */
+var TRACKER_KEY='mpesa-tracker.v1';
+function cashCategoryFor(r){
+  const icon=receiptIcon(r);
+  if(icon===itemKind('petrol'))return 'Transport & Fuel';
+  if(icon===itemKind('panadol'))return 'Health & Pharmacy';
+  return 'Groceries';
+}
+function claimCash(r){
+  let st=null;
+  try{st=JSON.parse(localStorage.getItem(TRACKER_KEY)||'null')}catch(e){}
+  if(!st||typeof st!=='object'){msg('Saved the receipt, but the tracker has no data here yet, so nothing was taken off the pocket.');return}
+  if(!Array.isArray(st.cashRuns))st.cashRuns=[];
+  const amount=r.slipTotal!=null&&r.slipTotal>0?r.slipTotal:receiptSum(r);
+  if(!(amount>0))return;
+  const run={
+    id:'cash-'+r.id,
+    date:r.date,
+    category:cashCategoryFor(r),
+    amount:amount,
+    items:r.items.map(i=>({name:i.name,amount:Math.round(lineTotalOf(i))})),
+    note:'Paid in cash - from a scanned receipt'+(r.shop?' at '+r.shop:'')
+  };
+  st.cashRuns=st.cashRuns.filter(x=>x.id!==run.id);
+  st.cashRuns.push(run);
+  try{localStorage.setItem(TRACKER_KEY,JSON.stringify(st))}catch(e){msg('Could not write to the tracker: '+e.message);return}
+  r.cash=true;saveReceipts();renderReceipts();
 }
 
 const lineTotalOf=i=>i.price*i.qty;
@@ -906,9 +983,11 @@ function renderReceipts(){
     b.className='rcard';
     const n=r.items.length;
     b.innerHTML='<span class="ricon" aria-hidden="true"></span>'+
-      '<span class="rtext"><span class="when"></span><br><span class="sub2">'+
-      n+(n===1?' item':' items')+'</span></span><span class="amt">'+fmt(receiptSum(r))+'</span>';
-    b.querySelector('.when').textContent=prettyDate(r.date);
+      '<span class="rtext"><span class="when"></span><br><span class="sub2"></span></span>'+
+      '<span class="amt">'+fmt(receiptSum(r))+'</span>';
+    b.querySelector('.when').textContent=r.shop||prettyDate(r.date);
+    b.querySelector('.sub2').textContent=(r.shop?prettyDate(r.date)+' \u00b7 ':'')+
+      n+(n===1?' item':' items')+(r.cash?' \u00b7 paid in cash':'');
     b.querySelector('.ricon').textContent=receiptIcon(r);
     b.onclick=()=>openReceipt(r.id);
     list.appendChild(b);
@@ -1013,7 +1092,9 @@ function openReceipt(id){
   const sum=receiptSum(r);
   const head=$('oneHead');
   head.innerHTML='<h2>Receipt</h2>';
+  if(r.shop)head.appendChild(row2('Shop','',0)).querySelector('.v').textContent=r.shop;
   head.appendChild(row2('Date','',0)).querySelector('.v').textContent=prettyDate(r.date);
+  if(r.cash)head.appendChild(row2('Paid','',0)).querySelector('.v').textContent='in cash';
   head.appendChild(row2('Items','',r.items.length));
   head.appendChild(row2('Total','',sum));
   if(r.slipTotal!=null&&Math.abs(r.slipTotal-sum)>1)

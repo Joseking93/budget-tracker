@@ -114,7 +114,12 @@ function decorate(txns) {
 
   // A refund pointed at a spend takes that spend's category and nets against it —
   // so a 3,000 fee refunded 2,500 reads as 500, which is what it cost.
-  const decorated = new Map(base.map((t) => [t.id, t]));
+  // Copies, not the base rows themselves: everything below writes onto these
+  // (refund links, and the cash breakdown), and pocketNow() needs `base` left
+  // exactly as filed. Sharing the objects meant a claim on money sent to be
+  // drawn out was laid onto base too, and then applied a second time from
+  // there - the pocket fell by twice the receipt.
+  const decorated = new Map(base.map((t) => [t.id, { ...t }]));
   for (const [refundId, spendId] of Object.entries(refundLinks || {})) {
     const r = decorated.get(refundId);
     const s = decorated.get(spendId);
@@ -3383,6 +3388,85 @@ function countUp(el, to, ms = 1100) {
   setTimeout(() => { if (!frames) el.textContent = viz.fmt(to); }, 300);
 }
 
+/** A category that names nothing: money filed here is money not yet understood. */
+const VAGUE = /^(other services|other|others|miscellaneous|misc|general|sundry)$/i;
+
+/**
+ * What this month needs from you before its figures mean much.
+ *
+ * The app knows exactly how many rows nobody has sorted and how much of the
+ * month sits under a name that names nothing, and until now it said neither:
+ * a ring is only as good as the sorting behind it, and an "Other Services"
+ * slice at 18% is a fifth of the money the ring cannot explain. Each line
+ * opens the rows it is about, in this cycle, so the fix is one tap away.
+ */
+function renderAttention(cycle, month) {
+  const box = $('#home-attend');
+  if (!box) return;
+  const out = cycle.filter((t) => t.direction === 'Out');
+  const lines = [];
+
+  const loose = out.filter((t) => t.category === 'Uncategorised');
+  if (loose.length) {
+    const sum = loose.reduce((s, t) => s + t.amount, 0);
+    lines.push(`<button class="attend-row" type="button" data-drill-cat="Uncategorised">
+      <b>${loose.length} row${loose.length === 1 ? '' : 's'} not sorted yet</b>
+      <span>${viz.fmt(sum)} this month is in no category. Tap to sort.</span>
+    </button>`);
+  }
+
+  // Only the one worst offender: this is a nudge, not a report.
+  const rows = viz.byCategory(out);
+  const total = rows.reduce((s, r) => s + r.total, 0);
+  const vague = rows.find((r) => VAGUE.test(r.category) && total > 0 && r.total / total >= 0.15);
+  if (vague) {
+    lines.push(`<button class="attend-row" type="button" data-drill-cat="${escapeHtml(vague.category)}">
+      <b>"${escapeHtml(vague.category)}" is ${Math.round((vague.total / total) * 100)}% of the month</b>
+      <span>${viz.fmt(vague.total)} under a name that says nothing. Worth splitting into what it really was.</span>
+    </button>`);
+  }
+
+  box.hidden = !lines.length;
+  box.innerHTML = lines.join('');
+  if (lines.length) wireDrill(box, month);
+}
+
+/**
+ * Says, in the console and only on a dev server, when something on the open
+ * view is wider than the screen.
+ *
+ * The views clip sideways overflow now, so a long name can no longer drag the
+ * whole page left and right - which also means it can no longer be SEEN
+ * doing it. Five grids did exactly that before anyone noticed. This keeps the
+ * symptom visible to whoever is working on the app while hiding it from
+ * whoever is using it. Anything inside its own sideways scroller is meant to
+ * be wider, and is skipped.
+ */
+function warnIfWiderThanScreen() {
+  if (!/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return;
+  requestAnimationFrame(() => {
+    const view = [...document.querySelectorAll('.view')].find(
+      (v) => getComputedStyle(v).display !== 'none',
+    );
+    if (!view) return;
+    const limit = view.getBoundingClientRect().right + 1;
+    const scrolls = (el) => {
+      for (let n = el.parentElement; n && n !== view; n = n.parentElement) {
+        const ox = getComputedStyle(n).overflowX;
+        if (ox === 'auto' || ox === 'scroll') return true;
+      }
+      return false;
+    };
+    for (const el of view.querySelectorAll('*')) {
+      const r = el.getBoundingClientRect();
+      if (r.width && r.right > limit && !scrolls(el)) {
+        console.warn(`[layout] wider than the screen by ${Math.round(r.right - limit)}px:`, el);
+        return;
+      }
+    }
+  });
+}
+
 /** The most recent message that carried a balance, per account. */
 function latestBalances() {
   const latest = new Map();
@@ -4313,7 +4397,7 @@ function renderHome(all) {
     // What is LEFT moves to the line under the list, where it reads as the
     // note it is instead of competing with the balance at the top.
     $('#hero-left').textContent = viz.fmt(spent);
-    $('#hero-sub').textContent = `of ${viz.fmt(budgeted)}`;
+    $('#hero-sub').textContent = `of ${viz.fmt(budgeted)} budgeted`;
   }
 
   // Where the cycle has got to, against where the money has got to. Only
@@ -4330,6 +4414,9 @@ function renderHome(all) {
   $('#chip-in').textContent = viz.fmt(cs.income);
   $('#chip-days').textContent = days === 0 ? 'Last' : days;
   $('#chip-days-label').textContent = days === 1 ? 'Day left' : 'Days left';
+
+  renderAttention(cycle, month);
+  warnIfWiderThanScreen();
 
   // Every figure on this card opens what it counted.
   const labelNow = monthLabel(month);
