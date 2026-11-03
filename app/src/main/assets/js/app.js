@@ -2035,6 +2035,12 @@ function renderSettings() {
     const drop = $('#btn-drop-undated');
     if (drop) drop.textContent = `Remove the ${n(undated)} undated`;
   }
+  const lockRow = $('#set-lock-row');
+  if (lockRow) {
+    const can = Boolean(window.Android && window.Android.canLock && window.Android.canLock());
+    lockRow.hidden = !can;
+    if (can) $('#set-lock').checked = Boolean(window.Android.isLockEnabled());
+  }
   $('#set-name').value = s.name || '';
   $('#set-phones').value = (s.phones || []).join(', ');
   $('#set-accounts').value = (s.accounts || []).join(', ');
@@ -2093,6 +2099,14 @@ function wireSettings() {
     renderSettings();
     toast('Settings saved. They stay in this browser.');
   };
+  const lockBox = $('#set-lock');
+  if (lockBox && !lockBox.dataset.wired) {
+    lockBox.dataset.wired = '1';
+    lockBox.addEventListener('change', () => {
+      if (window.Android && window.Android.setLockEnabled) window.Android.setLockEnabled(lockBox.checked);
+      toast(lockBox.checked ? 'The app will ask who you are when it comes back to the front.' : 'Lock off.');
+    });
+  }
   ['#set-name', '#set-phones', '#set-accounts', '#set-limit'].forEach((sel) =>
     $(sel).addEventListener('change', save)
   );
@@ -3015,6 +3029,27 @@ function wire() {
     URL.revokeObjectURL(a.href);
   });
 
+  // On the phone the app looks after its own backups - see backupNow. These
+  // two only show where there is a bridge to write through.
+  const nowBtn = $('#btn-backup-now');
+  const restoreBtn = $('#btn-restore-file');
+  const note = $('#backup-note');
+  if (window.Android && window.Android.saveBackup) {
+    nowBtn.hidden = false;
+    restoreBtn.hidden = false;
+    note.hidden = false;
+    const last = localStorage.getItem(BACKUP_LAST_KEY);
+    note.textContent = last
+      ? `The app writes a backup to Download/BudgetTracker every day it is opened (keeps the last ten). Last one: ${last}.`
+      : 'The app writes a backup to Download/BudgetTracker every day it is opened, and keeps the last ten.';
+    nowBtn.addEventListener('click', () => {
+      const where = backupNow(true);
+      toast(where.startsWith('ok:') ? `Saved to ${where.slice(3)}` : `Backup failed: ${where.slice(4)}`);
+      if (where.startsWith('ok:')) note.textContent = `Backed up just now to ${where.slice(3)}.`;
+    });
+    restoreBtn.addEventListener('click', () => window.Android.restoreBackup());
+  }
+
   // Sharing a file beats downloading one on a phone: a download lands in a folder you
   // then have to find and move. The share sheet puts it straight into WhatsApp, Drive
   // or email, which is how it reaches the laptop.
@@ -3465,6 +3500,145 @@ function warnIfWiderThanScreen() {
       }
     }
   });
+}
+
+/* ---- the app's own backups ---------------------------------------------
+   Everything the app knows lives in the WebView's storage, which goes with the
+   app: an uninstall, a change of signing key, or Android clearing a WebView's
+   data wipes it, and "Copy everything" only helps if it was tapped. So on the
+   phone the app writes a backup to Download/BudgetTracker once a day by
+   itself, through the bridge, where none of those reach. One file holds both
+   pages - the tracker's export and Basket's two keys - so a restore is one
+   file too. */
+const BACKUP_LAST_KEY = 'budget-backup-last';
+const BACKUP_KIND = 'budget-tracker-backup';
+
+function backupPayload() {
+  return JSON.stringify({
+    kind: BACKUP_KIND,
+    version: ASSET_BUILD,
+    when: new Date().toISOString(),
+    tracker: JSON.parse(store.exportJSON()),
+    basket: {
+      'basket-budget-v1': localStorage.getItem('basket-budget-v1'),
+      'basket-receipts-v1': localStorage.getItem('basket-receipts-v1'),
+    },
+  });
+}
+
+/** Writes today's backup; returns the bridge's "ok:<where>" or "err:<why>". */
+function backupNow(force = false) {
+  if (!window.Android || !window.Android.saveBackup) return 'err:no bridge';
+  const today = isoDay(new Date());
+  if (!force && localStorage.getItem(BACKUP_LAST_KEY) === today) return 'ok:already today';
+  const where = String(window.Android.saveBackup(`budget-backup-${today}.json`, backupPayload()));
+  if (where.startsWith('ok:')) localStorage.setItem(BACKUP_LAST_KEY, today);
+  return where;
+}
+
+/**
+ * A chosen backup file, read by Android and handed here. Nothing is touched
+ * until the sheet's own button is tapped: a WebView swallows confirm(), and a
+ * restore is not something to do on a mis-tap.
+ */
+window.onBackupRead = (text) => {
+  let data = null;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    toast('That file is not a backup this app wrote.');
+    return;
+  }
+  if (!data || data.kind !== BACKUP_KIND || !data.tracker) {
+    toast('That file is not a backup this app wrote.');
+    return;
+  }
+  const when = data.when ? new Date(data.when).toLocaleString('en-GB') : 'an unknown time';
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Restore a backup">
+      <h3>Restore this backup?</h3>
+      <p class="hint">Written ${escapeHtml(when)} by version ${escapeHtml(String(data.version || '?'))}.
+        Transactions, rules and categories merge in; single figures take the file's version;
+        Basket's list and receipts are replaced by the file's. The app reloads afterwards.</p>
+      <div class="modal-actions">
+        <button type="button" class="ghost" id="restore-cancel">Cancel</button>
+        <button type="button" id="restore-go">Restore</button>
+      </div>
+    </div>`;
+  overlay.querySelector('#restore-cancel').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#restore-go').addEventListener('click', () => {
+    const r = store.importJSON(JSON.stringify(data.tracker));
+    if (r && r.error) {
+      toast(r.error);
+      return;
+    }
+    for (const [key, value] of Object.entries(data.basket || {})) {
+      if (typeof value === 'string') localStorage.setItem(key, value);
+    }
+    overlay.remove();
+    location.reload();
+  });
+  document.body.appendChild(overlay);
+};
+
+/* ---- what the phone says when the app is closed --------------------------
+   The page cannot run in the background, so this is two things: lines that
+   crossed 80% or went over are posted the moment the app sees them (once per
+   line per month), and the words for the last day of the month are left with
+   Android along with an alarm. Both are as current as the last time the app
+   was opened, which is the most a page can honestly offer. */
+const NOTIFIED_KEY = 'budget-notified';
+
+function notifyBudgets(report, month, days, to, budgeted, spent) {
+  const a = window.Android;
+  if (!a || !a.notify) return;
+  let done = {};
+  try {
+    done = JSON.parse(localStorage.getItem(NOTIFIED_KEY) || '{}');
+  } catch (e) {
+    done = {};
+  }
+  // Only this month's keys are kept, so the record does not grow forever.
+  const keep = {};
+  for (const [k, v] of Object.entries(done)) if (k.startsWith(`${month}|`)) keep[k] = v;
+  const hash = (s) => {
+    let n = 0;
+    for (let i = 0; i < s.length; i += 1) n = (n * 31 + s.charCodeAt(i)) | 0;
+    return Math.abs(n) % 100000 + 1000;
+  };
+  for (const r of report || []) {
+    if (!(r.amount > 0)) continue;
+    const pct = r.spent / r.amount;
+    const stage = pct >= 1 ? 'over' : pct >= 0.8 ? '80' : null;
+    if (!stage) continue;
+    const key = `${month}|${r.label}|${stage}`;
+    if (keep[key]) continue;
+    keep[key] = 1;
+    const title = stage === 'over'
+      ? `${r.label} is over by ${viz.fmt(r.spent - r.amount)}`
+      : `${r.label} is at ${Math.round(pct * 100)}%`;
+    const text = `${viz.fmt(r.spent)} of ${viz.fmt(r.amount)} \u00b7 ${days} day${days === 1 ? '' : 's'} left in the month`;
+    try {
+      a.notify(hash(key), title, text);
+    } catch (e) {
+      /* an older build without the bridge */
+    }
+  }
+  localStorage.setItem(NOTIFIED_KEY, JSON.stringify(keep));
+
+  if (a.scheduleReminder && to) {
+    const at = Date.parse(`${to}T09:00:00`);
+    const text = budgeted > 0
+      ? `${viz.fmt(Math.max(0, budgeted - spent))} left of ${viz.fmt(budgeted)}, as of the last time the app was opened.`
+      : `${viz.fmt(spent)} spent so far, as of the last time the app was opened.`;
+    try {
+      a.scheduleReminder(at, 'Last day of your budget month', text);
+    } catch (e) {
+      /* an older build without the bridge */
+    }
+  }
 }
 
 /** The most recent message that carried a balance, per account. */
@@ -4494,6 +4668,10 @@ function renderHome(all) {
           : `${shortDate(from)} \u2013 ${shortDate(to)} \u00b7 ${days} day${days === 1 ? '' : 's'} to go`;
       window.Android.setSpendSummary(viz.fmt(spent + outside), note, used);
     }
+    notifyBudgets(report, month, days, to, budgeted, spent);
+    // The day's backup, once the home screen has drawn: everything it needs
+    // is on file by then, and it is cheap.
+    setTimeout(() => backupNow(), 3000);
   } catch (e) {
     /* an older build without the bridge */
   }

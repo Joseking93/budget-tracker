@@ -14,6 +14,9 @@
          the phone: it goes to the page in this app, which stores it here. -->
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- A budget line nearly spent, one gone over, and the last day of the
+         month. Asked for the first time one is due, never before. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -68,6 +71,11 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_inbox_info" />
         </receiver>
+
+        <!-- The last-day reminder, fired by the alarm the page sets. -->
+        <receiver
+            android:name=".ReminderReceiver"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

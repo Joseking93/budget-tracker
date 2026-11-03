@@ -49,6 +49,18 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import android.app.AlarmManager
+import android.app.KeyguardManager
+import android.app.PendingIntent
+import android.content.ContentUris
+import android.content.ContentValues
+import android.hardware.biometrics.BiometricManager
+import android.hardware.biometrics.BiometricPrompt
+import android.os.CancellationSignal
+import android.os.Environment
+import android.provider.MediaStore
+import android.view.Gravity
+import android.widget.Button
 
 /**
  * Budget Tracker: the pages in assets/ (the tracker at index.html, Basket at
@@ -149,6 +161,36 @@ class MainActivity : ComponentActivity() {
         }
 
     @SuppressLint("SetJavaScriptEnabled")
+    /** A backup file chosen to restore from. The page decides what to do with it. */
+    private val pickBackup =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            val text = try {
+                contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            } catch (e: Exception) {
+                null
+            }
+            if (text == null) {
+                Toast.makeText(this, "Could not read that file.", Toast.LENGTH_LONG).show()
+            } else {
+                runJs("window.onBackupRead && window.onBackupRead(${JSONObject.quote(text)});")
+            }
+        }
+
+    /** Android 13+ asks before an app may post notifications. The answer is kept by the system. */
+    private val askNotify =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    /** For phones older than the biometric prompt: the lock screen itself. */
+    private val confirmCredential =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) unlocked() else lockMessage("Not unlocked.")
+        }
+
+    /** The opaque sheet over the page while the phone has not said who is holding it. */
+    private var lockOverlay: View? = null
+    private var unlockedAt = 0L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         pendingPhotoPath = savedInstanceState?.getString(KEY_PENDING_PHOTO)
@@ -350,6 +392,28 @@ class MainActivity : ComponentActivity() {
     }
 
     /** singleTop: the widget reuses this activity rather than stacking a copy. */
+    // ------------------------------------------------------------------ lock
+    //
+    // The lock is a sheet over the page, not a check in the page: a WebView
+    // cannot ask the phone who is holding it. It comes down when the app comes
+    // to the front after being away, but not after a short hop out to the
+    // camera or a file picker, which also comes back through onStart.
+
+    override fun onStart() {
+        super.onStart()
+        if (lockEnabled() && System.currentTimeMillis() - unlockedAt > LOCK_GRACE_MS) {
+            showLock()
+            promptUnlock()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Leaving while unlocked starts the grace period; leaving while still
+        // locked does not, or a hop out and back would walk straight in.
+        if (lockOverlay == null) unlockedAt = System.currentTimeMillis()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -418,6 +482,50 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun setSheetOpen(open: Boolean) {
             sheetOpen = open
+        }
+
+        /**
+         * Writes a backup where an uninstall cannot reach it. Everything the app
+         * knows lives in the WebView's storage, which goes with the app; a file
+         * in Downloads does not. Returns "ok:<where>" or "err:<why>".
+         */
+        @JavascriptInterface
+        fun saveBackup(name: String, json: String): String = writeBackup(name, json)
+
+        @JavascriptInterface
+        fun restoreBackup() {
+            runOnUiThread { pickBackup.launch(arrayOf("application/json", "text/*", "*/*")) }
+        }
+
+        /** A budget line nearly spent, or gone over. Posted while the app is open. */
+        @JavascriptInterface
+        fun notify(id: Int, title: String, text: String) {
+            runOnUiThread {
+                if (!ensureNotifyPermission()) return@runOnUiThread
+                ReminderReceiver.post(this@MainActivity, id, title, text)
+            }
+        }
+
+        /** The words for the last-day reminder, and when. Replaces the previous one. */
+        @JavascriptInterface
+        fun scheduleReminder(atMillis: Double, title: String, text: String) {
+            runOnUiThread { scheduleReminderAt(atMillis.toLong(), title, text) }
+        }
+
+        /** Whether this phone has a screen lock to lean on at all. */
+        @JavascriptInterface
+        fun canLock(): Boolean =
+            (getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isDeviceSecure
+
+        @JavascriptInterface
+        fun isLockEnabled(): Boolean = lockEnabled()
+
+        @JavascriptInterface
+        fun setLockEnabled(on: Boolean) {
+            getSharedPreferences(LOCK_PREFS, MODE_PRIVATE).edit().putBoolean(KEY_LOCK, on).apply()
+            // Switching it on counts as having just unlocked: no prompt on the
+            // very next tap.
+            if (on) unlockedAt = System.currentTimeMillis()
         }
 
         /**
@@ -893,6 +1001,185 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------------------------------------------------------------- backup
+
+    private fun writeBackup(name: String, json: String): String {
+        try {
+            val bytes = json.toByteArray()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val dir = Environment.DIRECTORY_DOWNLOADS + "/" + BACKUP_DIR
+                val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                // The same day's file is replaced, not kept beside it as "(1)".
+                contentResolver.query(
+                    collection,
+                    arrayOf(MediaStore.Downloads._ID),
+                    "${MediaStore.Downloads.RELATIVE_PATH} LIKE ? AND ${MediaStore.Downloads.DISPLAY_NAME} = ?",
+                    arrayOf("$dir%", name),
+                    null,
+                )?.use { c ->
+                    while (c.moveToNext()) {
+                        contentResolver.delete(ContentUris.withAppendedId(collection, c.getLong(0)), null, null)
+                    }
+                }
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, name)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/json")
+                    put(MediaStore.Downloads.RELATIVE_PATH, dir)
+                }
+                val uri = contentResolver.insert(collection, values)
+                    ?: return "err:Android gave no file to write to"
+                contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                    ?: return "err:could not open the file"
+                pruneBackups(dir)
+                return "ok:Download/$BACKUP_DIR/$name"
+            }
+            // Before Android 10 there is no way into Downloads without a storage
+            // permission. The app's own external folder survives updates, not an
+            // uninstall - and the page says so.
+            val dir = File(getExternalFilesDir(null), "backups").apply { mkdirs() }
+            File(dir, name).writeBytes(bytes)
+            dir.listFiles { f -> f.name.startsWith(BACKUP_PREFIX) }
+                ?.sortedByDescending { it.name }
+                ?.drop(KEEP_BACKUPS)
+                ?.forEach { it.delete() }
+            return "ok:${File(dir, name).absolutePath}"
+        } catch (e: Exception) {
+            return "err:${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    /** Keeps the newest KEEP_BACKUPS files this app wrote there; the names sort by date. */
+    private fun pruneBackups(dir: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        val found = mutableListOf<Pair<String, Long>>()
+        contentResolver.query(
+            collection,
+            arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME),
+            "${MediaStore.Downloads.RELATIVE_PATH} LIKE ? AND ${MediaStore.Downloads.DISPLAY_NAME} LIKE ?",
+            arrayOf("$dir%", "$BACKUP_PREFIX%"),
+            null,
+        )?.use { c ->
+            while (c.moveToNext()) found.add(c.getString(1) to c.getLong(0))
+        }
+        found.sortedByDescending { it.first }.drop(KEEP_BACKUPS).forEach { (_, id) ->
+            try {
+                contentResolver.delete(ContentUris.withAppendedId(collection, id), null, null)
+            } catch (e: Exception) {
+                // Someone else's file of the same name pattern: leave it.
+            }
+        }
+    }
+
+    // --------------------------------------------------------- notifications
+
+    private fun ensureNotifyPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+        return granted
+    }
+
+    private fun scheduleReminderAt(at: Long, title: String, text: String) {
+        getSharedPreferences(ReminderReceiver.PREFS, MODE_PRIVATE).edit()
+            .putString(ReminderReceiver.KEY_TITLE, title)
+            .putString(ReminderReceiver.KEY_TEXT, text)
+            .apply()
+        if (at <= System.currentTimeMillis()) return
+        val fire = PendingIntent.getBroadcast(
+            this,
+            ReminderReceiver.REMINDER_ID,
+            Intent(this, ReminderReceiver::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val alarms = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        // Inexact is fine for a morning reminder, and needs no alarm permission.
+        alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, fire)
+    }
+
+    // ------------------------------------------------------------------ lock
+
+    private fun lockEnabled() =
+        getSharedPreferences(LOCK_PREFS, MODE_PRIVATE).getBoolean(KEY_LOCK, false)
+
+    private fun showLock() {
+        if (lockOverlay != null) return
+        val bg = getSharedPreferences("chrome", MODE_PRIVATE)
+            .getInt("bg", ContextCompat.getColor(this, R.color.page_bg))
+        val button = Button(this).apply {
+            text = "Unlock"
+            setOnClickListener { promptUnlock() }
+        }
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(bg)
+            isClickable = true // swallows every touch meant for the page under it
+            addView(button, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        }
+        // On the window's own content frame, so it sits OVER the page rather
+        // than being stacked below it by the vertical layout the page lives in.
+        addContentView(overlay, ViewGroup.LayoutParams(-1, -1))
+        lockOverlay = overlay
+    }
+
+    private fun hideLock() {
+        val overlay = lockOverlay ?: return
+        (overlay.parent as? ViewGroup)?.removeView(overlay)
+        lockOverlay = null
+    }
+
+    private fun unlocked() {
+        unlockedAt = System.currentTimeMillis()
+        hideLock()
+    }
+
+    private fun lockMessage(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun promptUnlock() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val builder = BiometricPrompt.Builder(this)
+                .setTitle("Budget Tracker")
+                .setSubtitle("Unlock to continue")
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                    builder.setAllowedAuthenticators(
+                        BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                            BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+                    )
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                    @Suppress("DEPRECATION")
+                    builder.setDeviceCredentialAllowed(true)
+                else ->
+                    // Android 9 has fingerprints but no PIN fallback in the prompt.
+                    builder.setNegativeButton("Use PIN", mainExecutor) { _, _ -> keyguardUnlock() }
+            }
+            builder.build().authenticate(
+                CancellationSignal(),
+                mainExecutor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        unlocked()
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        lockMessage(errString.toString())
+                    }
+                },
+            )
+        } else {
+            keyguardUnlock()
+        }
+    }
+
+    private fun keyguardUnlock() {
+        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        @Suppress("DEPRECATION")
+        val intent = keyguard.createConfirmDeviceCredentialIntent("Budget Tracker", "Unlock to continue")
+        if (intent == null) unlocked() else confirmCredential.launch(intent)
+    }
+
     /** Says what went wrong in the sheet. Silence is what made this hard to find. */
     private fun fail(message: String) = onBasketPage {
         deliver(ReceiptScan(emptyList(), null), emptyList(), message)
@@ -918,6 +1205,13 @@ class MainActivity : ComponentActivity() {
         const val BULLET = "\u00b7"
         const val KEY_PENDING_PHOTO = "pendingPhotoPath"
         const val KEY_PAGE = "page"
+        const val LOCK_PREFS = "lock"
+        const val KEY_LOCK = "on"
+        /** A hop out to the camera or a picker and back does not re-ask. */
+        const val LOCK_GRACE_MS = 90_000L
+        const val BACKUP_DIR = "BudgetTracker"
+        const val BACKUP_PREFIX = "budget-backup-"
+        const val KEEP_BACKUPS = 10
         const val MAX_PDF_PAGES = 5
         const val PDF_TARGET_WIDTH = 1600
         const val PAGE_STRIDE = 1_000_000

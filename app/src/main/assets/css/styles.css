@@ -312,6 +312,9 @@ select.budget-assign { pointer-events: none; }
 }
 .cash-since { margin: 0; font-size: 12px; color: var(--ink2); }
 
+.set-check { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
+.set-check input { width: 22px; height: 22px; accent-color: var(--tint); }
+.set-check .hint { grid-column: 1 / -1; }
 .cash-given-link { align-self: flex-start; margin: -4px 0 0 2px; font-size: 13px; }
 .cash-acts {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

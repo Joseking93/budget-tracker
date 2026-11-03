@@ -760,6 +760,11 @@
           <input id="set-limit" type="number" min="0" step="50">
           <em class="hint">Above this, unknown names are left for you to categorise.</em>
         </label>
+        <label class="set-row set-check" id="set-lock-row" hidden>
+          <span>Lock the app</span>
+          <input id="set-lock" type="checkbox">
+          <em class="hint">Asks for your fingerprint, face or phone PIN when the app comes to the front after being away. Uses the lock your phone already has.</em>
+        </label>
       </div>
 
       <h3 class="debt-group">People you know</h3>
@@ -805,11 +810,18 @@
         <button id="btn-drop-undated" class="ghost">Remove the undated ones</button>
       </div>
 
+      <!-- The app's own safety net, on the phone only: everything it knows is
+           written to Download/BudgetTracker once a day, where an uninstall
+           cannot reach it. The paragraph is filled in by the page. -->
+      <p class="hint" id="backup-note" hidden></p>
+
       <h3 class="debt-group">Moving between phone and laptop</h3>
       <p class="hint">Send a backup from one device and restore it on the other. Everything is keyed by M-PESA receipt, so importing can't double-count and re-importing the same file does nothing. Do it both ways and both devices end up with everything.</p>
       <div class="row">
         <button id="btn-share" class="primary" hidden>Send backup…</button>
         <button id="btn-export" class="ghost">Download backup</button>
+        <button id="btn-backup-now" class="ghost" hidden>Back up to Downloads now</button>
+        <button id="btn-restore-file" class="ghost" hidden>Restore from a backup file&hellip;</button>
         <label class="filebtn small">
           <input id="import-file" type="file" accept="application/json" hidden>
           <span>Restore / merge a backup…</span>
