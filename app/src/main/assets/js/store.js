@@ -51,6 +51,10 @@ const empty = () => ({
   // NOT transactions. The money already counted when it was withdrawn, so these
   // only say what it went on - see js/cash.js for why that distinction matters.
   cashRuns: [],
+  // Cash that came into your hand without leaving an account - a gift, change,
+  // a refund in notes: {id, date, amount, note}. Not transactions and not
+  // income; they only say where cash the app never saw drawn came from.
+  cashIn: [],
   // LENDER -> the day it last told us a loan of its was finished. Not money, so
   // not a transaction; it is what stops a settled loan being predicted forever.
   settlements: {},
@@ -701,6 +705,35 @@ export function addCashRun(run) {
   return row;
 }
 
+/** Cash you were given: it joins the pocket like a withdrawal, from its date. */
+export function cashIn() {
+  if (!Array.isArray(state.cashIn)) state.cashIn = [];
+  return state.cashIn;
+}
+
+export function addCashIn(gift) {
+  const amount = Number(gift.amount) || 0;
+  if (amount <= 0) return null;
+  const row = {
+    id: `cashin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    date: gift.date || new Date().toISOString().slice(0, 10),
+    amount,
+    note: String(gift.note || '').trim(),
+  };
+  cashIn().push(row);
+  save();
+  return row;
+}
+
+export function removeCashIn(id) {
+  const list = cashIn();
+  const i = list.findIndex((r) => r.id === id);
+  if (i < 0) return false;
+  list.splice(i, 1);
+  save();
+  return true;
+}
+
 export function removeCashRun(id) {
   const list = cashRuns();
   const i = list.findIndex((r) => r.id === id);
@@ -948,6 +981,11 @@ export function importJSON(text) {
     const mine = new Map(cashRuns().map((r) => [r.id, r]));
     for (const r of incoming.cashRuns) mine.set(r.id, r);
     state.cashRuns = [...mine.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+  }
+  if (Array.isArray(incoming.cashIn)) {
+    const mine = new Map(cashIn().map((r) => [r.id, r]));
+    for (const r of incoming.cashIn) mine.set(r.id, r);
+    state.cashIn = [...mine.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
   }
 
   // --- payables: merge by id. Money recorded by hand and linked payments are

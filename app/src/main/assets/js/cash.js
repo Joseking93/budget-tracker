@@ -88,6 +88,11 @@ const day = (iso) => String(iso || '').slice(0, 10);
  * @param {object[]} txns  every transaction being read
  * @param {object[]} runs  itemisations: {id, date, category, amount, items[]}
  * @param {string}   since YYYY-MM-DD the current cycle began; older cash is gone
+ * @param {object[]} gifts cash that came into your hand without leaving an
+ *                         account: {id, date, amount, note}. It joins the pool
+ *                         like a withdrawal, so a receipt paid out of it is
+ *                         covered instead of counting toward nothing - but it
+ *                         has no statement row, so nothing is split by it.
  * @returns {{splits: Map<string, {category: string, amount: number}[]>,
  *            hand: Set<string>, pocket: number, since: string|null,
  *            unmatched: number, claimed: Map<string, {txnId: string, amount: number}[]>}}
@@ -95,11 +100,16 @@ const day = (iso) => String(iso || '').slice(0, 10);
  *          than read as a Withdrawal - their splits in `splits` already carry
  *          the rest of what the money was, and replace the hand-made split.
  */
-export function allocate(txns, runs = [], since = null) {
+export function allocate(txns, runs = [], since = null, gifts = []) {
   const pool = txns
     .map((t) => ({ t, d: drawn(t) }))
     .filter(({ d }) => d && d.amount > 0)
     .map(({ t, d }) => ({ id: t.id, date: day(t.date), left: d.amount, parts: new Map(), other: d.other }))
+    .concat(
+      gifts
+        .filter((g) => Number(g.amount) > 0)
+        .map((g) => ({ id: g.id, date: day(g.date), left: Number(g.amount), parts: new Map(), other: null, gift: true })),
+    )
     // Newest first, so a claim meets the most recent cash it could have come
     // out of before it meets any older.
     .sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0));
@@ -149,6 +159,7 @@ export function allocate(txns, runs = [], since = null) {
   const splits = new Map();
   const hand = new Set();
   for (const w of pool) {
+    if (w.gift) continue; // no statement row to split: the runs list says what it bought
     if (w.parts.size === 0) continue; // untouched: leave the row exactly as it was
     const parts = [...w.parts.entries()].map(([category, amount]) => ({ category, amount }));
     if (w.left > 0) parts.push({ category: UNCLAIMED_CATEGORY, amount: w.left });

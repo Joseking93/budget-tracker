@@ -905,8 +905,42 @@ function claimCash(r){
   };
   st.cashRuns=st.cashRuns.filter(x=>x.id!==run.id);
   st.cashRuns.push(run);
+  // The tracker keeps a receipt -> run map of its own, so its receipts panel
+  // can see this slip is already booked and will not book it twice.
+  if(!st.receiptCash||typeof st.receiptCash!=='object')st.receiptCash={};
+  st.receiptCash[r.id]=run.id;
   try{localStorage.setItem(TRACKER_KEY,JSON.stringify(st))}catch(e){msg('Could not write to the tracker: '+e.message);return}
   r.cash=true;saveReceipts();renderReceipts();
+}
+
+/* The run follows the receipt it came from: a corrected date moves it, and a
+   deleted receipt takes it away. Without this a slip filed under the wrong
+   day left its cash claim on that day for good, and a deleted slip went on
+   taking its total off the pocket. */
+function withTracker(fn){
+  let st=null;
+  try{st=JSON.parse(localStorage.getItem(TRACKER_KEY)||'null')}catch(e){}
+  if(!st||typeof st!=='object')return;
+  if(!Array.isArray(st.cashRuns))st.cashRuns=[];
+  if(!st.receiptCash||typeof st.receiptCash!=='object')st.receiptCash={};
+  fn(st);
+  try{localStorage.setItem(TRACKER_KEY,JSON.stringify(st))}catch(e){}
+}
+const runIdFor=(st,r)=>st.receiptCash[r.id]||('cash-'+r.id);
+function syncCashRun(r){
+  if(!r||!r.cash)return;
+  withTracker(st=>{
+    const id=runIdFor(st,r);
+    st.cashRuns.forEach(x=>{if(x.id===id)x.date=r.date});
+  });
+}
+function dropCashRun(r){
+  if(!r||!r.cash)return;
+  withTracker(st=>{
+    const id=runIdFor(st,r);
+    st.cashRuns=st.cashRuns.filter(x=>x.id!==id);
+    delete st.receiptCash[r.id];
+  });
 }
 
 const lineTotalOf=i=>i.price*i.qty;
@@ -1111,7 +1145,7 @@ function openReceipt(id){
 $('oneDate').onchange=()=>{
   const v=$('oneDate').value;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(v))return;
-  receipts.forEach(x=>{if(x.id===openId)x.date=v});
+  receipts.forEach(x=>{if(x.id===openId){x.date=v;syncCashRun(x)}});
   receipts.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
   saveReceipts();renderReceipts();openReceipt(openId);
 };
@@ -1137,6 +1171,7 @@ $('oneDelete').onclick=()=>{
     setTimeout(()=>{armedDel=false;b.textContent='Delete';b.classList.remove('confirm')},3000);
     return;
   }
+  receipts.forEach(x=>{if(x.id===openId)dropCashRun(x)});
   receipts=receipts.filter(x=>x.id!==openId);
   armedDel=false;b.textContent='Delete';b.classList.remove('confirm');
   saveReceipts();renderReceipts();show('receipts');

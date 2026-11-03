@@ -494,6 +494,26 @@
       <button class="primary" type="button" id="btn-cash-add">Add spending</button>
       <button class="ghost" type="button" id="btn-cash-count">Count it</button>
     </div>
+    <button class="link cash-given-link" type="button" id="btn-cash-given">+ Cash I was given</button>
+
+    <!-- Cash that came into your hand without leaving an account: a gift,
+         change, a refund in notes. It joins the pocket like a withdrawal, so
+         a receipt paid out of it is covered instead of counting toward
+         nothing. Not income - nothing here touches a total. -->
+    <section class="card" id="cash-given" hidden>
+      <h3>Cash you were given</h3>
+      <p class="hint">Money that reached your hand without leaving any account the app reads.
+        It goes into the pocket from the day you got it, and nowhere else.</p>
+      <div class="cash-countrow">
+        <input type="number" id="cash-given-amt" inputmode="numeric" min="0" step="1" placeholder="0">
+        <input type="date" id="cash-given-date" aria-label="Date">
+      </div>
+      <div class="cash-countrow">
+        <input type="text" id="cash-given-note" placeholder="from whom, or what for" autocomplete="off">
+        <button class="primary" type="button" id="btn-cash-given-save">Save</button>
+      </div>
+    </section>
+    <div id="cash-gifts"></div>
 
     <section class="card" id="cash-count" hidden>
       <h3>How much is actually there?</h3>

@@ -71,13 +71,22 @@ export function matchReceipt(receipt, txns, { taken = new Set() } = {}) {
   });
   if (!candidates.length) return null;
 
+  // The shop, when the slip carried one, settles a tie. Two payments for the
+  // same total on the same day used to be a coin toss; now the one whose
+  // merchant is named on the slip wins. Letters only on both sides, because
+  // the slip says "Quickmart" and M-PESA says "QUICK MART EMBAKASI".
+  const shop = letters(receipt.shop);
+  const named = (t) => Boolean(shop) && letters(t.counterparty).includes(shop);
+
   const scored = candidates
-    .map((t) => ({ txn: t, days: dayGap(localDay(t.date), receipt.date) }))
+    .map((t) => ({ txn: t, days: dayGap(localDay(t.date), receipt.date), named: named(t) }))
     .filter((c) => c.days <= 1)
-    .sort((a, b) => a.days - b.days);
+    .sort((a, b) => a.days - b.days || Number(b.named) - Number(a.named));
 
   return scored.length ? scored[0].txn : null;
 }
+
+const letters = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
 
 function dayGap(a, b) {
   const x = Date.parse(a + 'T00:00:00Z');

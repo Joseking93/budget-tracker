@@ -134,7 +134,7 @@ function decorate(txns) {
   // SPLIT rather than a transaction of its own because the money was already
   // counted as spending when it left the wallet - adding it again would count
   // the same 430 twice. See js/cash.js.
-  const pocket = cash.allocate(base, store.cashRuns());
+  const pocket = cash.allocate(base, store.cashRuns(), null, store.cashIn());
   for (const [id, parts] of pocket.splits) {
     const t = decorated.get(id);
     if (!t) continue;
@@ -170,7 +170,7 @@ function pocketNow() {
   // already broken down into what it bought, count only the unclaimed rest as
   // cash, and then have nowhere to place the same claims a second time.
   decorate(all);
-  return cash.allocate(decorateCache.base || all, store.cashRuns(), start);
+  return cash.allocate(decorateCache.base || all, store.cashRuns(), start, store.cashIn());
 }
 
 // Which name rule actually won, for the explanation.
@@ -4119,6 +4119,30 @@ function renderCash() {
       'cash from change or a gift, most likely. It is listed below but counts toward nothing.';
   }
 
+  const gifts = [...store.cashIn()].sort((x, y) => (x.date < y.date ? 1 : -1));
+  const gbox = $('#cash-gifts');
+  if (gbox) {
+    gbox.innerHTML = !gifts.length ? '' : `<h3 class="cash-sec">Cash you were given</h3>${gifts
+      .map((g) => `<div class="card cashrun">
+        <div class="cr-line">
+          <div class="cr-grow">
+            <div class="cr-name">${escapeHtml(g.note || 'Cash in hand')}</div>
+            <div class="cr-sub">${shortDate(g.date)}</div>
+          </div>
+          <div class="cr-amt">${viz.fmt(g.amount)}</div>
+          <button class="cr-x" type="button" data-del-gift="${escapeHtml(g.id)}" aria-label="Remove">&times;</button>
+        </div>
+      </div>`)
+      .join('')}`;
+    gbox.querySelectorAll('[data-del-gift]').forEach((el) => {
+      el.addEventListener('click', () => {
+        store.removeCashIn(el.dataset.delGift);
+        render();
+        renderCash();
+      });
+    });
+  }
+
   const runs = [...store.cashRuns()].sort((a, b) => (a.date < b.date ? 1 : -1));
   const box = $('#cash-runs');
   if (!runs.length) {
@@ -4226,6 +4250,32 @@ function wireCash() {
       $('#cash-count-says').textContent = '';
       $('#cash-counted').focus();
     }
+  });
+
+  const givenCard = $('#cash-given');
+  $('#btn-cash-given').addEventListener('click', () => {
+    givenCard.hidden = !givenCard.hidden;
+    if (!givenCard.hidden) {
+      $('#cash-given-amt').value = '';
+      $('#cash-given-note').value = '';
+      $('#cash-given-date').value = isoDay(new Date());
+      $('#cash-given-amt').focus();
+    }
+  });
+  $('#btn-cash-given-save').addEventListener('click', () => {
+    const row = store.addCashIn({
+      amount: Number($('#cash-given-amt').value),
+      date: $('#cash-given-date').value,
+      note: $('#cash-given-note').value,
+    });
+    if (!row) {
+      toast('Put in how much you were given.');
+      return;
+    }
+    givenCard.hidden = true;
+    render();
+    renderCash();
+    toast(`${viz.fmt(row.amount)} added to your pocket. Nothing else changes.`);
   });
 
   $('#btn-cash-counted').addEventListener('click', () => {
