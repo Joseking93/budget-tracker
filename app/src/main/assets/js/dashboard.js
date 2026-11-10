@@ -341,7 +341,7 @@ const COLS = [
   { key: 'category', label: 'Category' },
 ];
 
-export function renderTable(el, txns, onEdit, sort, onSort, totalBeforeFilters = null, onSplit = null, more = null) {
+export function renderTable(el, txns, onEdit, sort, onSort, totalBeforeFilters = null, onSplit = null, more = null, onNote = null) {
   if (!txns.length) {
     // An empty app and an over-narrow filter are different problems; telling someone
     // with no data to "clear the filters" sends them looking for a filter that isn't set.
@@ -378,6 +378,12 @@ export function renderTable(el, txns, onEdit, sort, onSort, totalBeforeFilters =
                 )}</span>
                 ${esc(t.type)}${t.receipt ? ' · ' + esc(t.receipt) : ''}
               </div>
+              ${onNote
+                ? `<div class="note-line${t.note ? ' has' : ''}" data-note-for="${esc(t.id)}">
+                     <button class="note-btn" type="button" data-note="${esc(t.id)}"
+                       title="${t.note ? 'Edit the note' : 'Add a note: what was this for?'}">${t.note ? esc(t.note) : '+ note'}</button>
+                   </div>`
+                : ''}
             </td>
             <td class="num ${t.direction === 'In' ? 'in' : ''}">${t.direction === 'In' ? '+' : '−'}${fmt(t.amount)}</td>
             <td>${
@@ -433,6 +439,41 @@ export function renderTable(el, txns, onEdit, sort, onSort, totalBeforeFilters =
   if (onSplit) {
     el.querySelectorAll('button[data-split]').forEach((b) => {
       b.addEventListener('click', () => onSplit(b.dataset.split));
+    });
+  }
+
+  // A note is edited in place: the line turns into a box, Enter or leaving it
+  // saves, Escape puts it back. No dialog, because a note is three words and a
+  // dialog for three words is one tap too many on a list you are working down.
+  if (onNote) {
+    el.querySelectorAll('button[data-note]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const id = b.dataset.note;
+        const line = b.closest('.note-line');
+        const was = line.classList.contains('has') ? b.textContent : '';
+        const input = document.createElement('input');
+        input.className = 'note-in';
+        input.type = 'text';
+        input.maxLength = 120;
+        input.placeholder = 'what was this for?';
+        input.value = was;
+        let done = false;
+        const finish = (save) => {
+          if (done) return;
+          done = true;
+          if (save && input.value.trim() !== was) onNote(id, input.value);
+          else { line.innerHTML = ''; line.appendChild(b); }
+        };
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') finish(true);
+          if (e.key === 'Escape') finish(false);
+        });
+        input.addEventListener('blur', () => finish(true));
+        line.innerHTML = '';
+        line.appendChild(input);
+        input.focus();
+        input.select();
+      });
     });
   }
 

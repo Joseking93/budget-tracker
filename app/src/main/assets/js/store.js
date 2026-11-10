@@ -16,6 +16,10 @@ const empty = () => ({
   nameRules: [],
   customCategories: [],
   overrides: {},
+  // txnId -> a few words of your own about what a row was for: "oven repair",
+  // "Edith's school trip". A category says what kind of thing; this says which
+  // thing. Searched with the merchant name, so "oven" finds it again.
+  notes: {},
   // txnId -> [{category, amount, month?}, ...] that sum to the transaction's amount.
   // One movement, split across several categories (see setSplit). A part's optional
   // `month` (YYYY-MM) counts that slice toward a chosen budget month instead of the
@@ -260,6 +264,22 @@ export function setSplit(id, parts) {
 }
 
 /** Undo a split — the transaction goes back to its single computed/assigned category. */
+/** Your own words on a row. Empty removes them. */
+export function setNote(id, text) {
+  if (!state.transactions[id]) return false;
+  if (!state.notes) state.notes = {};
+  const clean = String(text || '').trim().slice(0, 120);
+  if (clean) state.notes[id] = clean;
+  else delete state.notes[id];
+  save();
+  return true;
+}
+
+export function notes() {
+  if (!state.notes) state.notes = {};
+  return state.notes;
+}
+
 export function clearSplit(id) {
   if (state.splits[id]) {
     delete state.splits[id];
@@ -969,6 +989,7 @@ export function importJSON(text) {
   state.customCategories = cc.list;
 
   state.overrides = { ...state.overrides, ...(incoming.overrides || {}) };
+  state.notes = { ...(state.notes || {}), ...(incoming.notes || {}) };
   state.splits = { ...state.splits, ...(incoming.splits || {}) };
   state.budgetMonths = { ...state.budgetMonths, ...(incoming.budgetMonths || {}) };
   state.refundLinks = { ...state.refundLinks, ...(incoming.refundLinks || {}) };

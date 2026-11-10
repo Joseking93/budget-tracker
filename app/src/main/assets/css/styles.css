@@ -315,6 +315,20 @@ select.budget-assign { pointer-events: none; }
 .set-check { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
 .set-check input { width: 22px; height: 22px; accent-color: var(--tint); }
 .set-check .hint { grid-column: 1 / -1; }
+/* ---- a note on a row ------------------------------------------------ */
+.note-line { margin-top: 4px; }
+.note-btn {
+  background: none; border: 0; padding: 0; font: inherit; font-size: 12px;
+  color: var(--muted); cursor: pointer; text-align: left; line-height: 1.35;
+}
+.note-line.has .note-btn { color: var(--ink); font-style: italic; }
+.note-line.has .note-btn::before { content: '\201C'; color: var(--muted); }
+.note-line.has .note-btn::after { content: '\201D'; color: var(--muted); }
+.note-in {
+  width: 100%; max-width: 320px; font: inherit; font-size: 13px; padding: 5px 9px;
+  border: 1px solid var(--card-line-strong); border-radius: 8px;
+  background: var(--card); color: var(--ink);
+}
 .cash-given-link { align-self: flex-start; margin: -4px 0 0 2px; font-size: 13px; }
 .cash-acts {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

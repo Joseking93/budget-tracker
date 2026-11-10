@@ -112,6 +112,9 @@ function decorate(txns) {
     return { ...t, category: c.category, budgetMonth, why: detail };
   });
 
+  const notes = store.notes();
+  for (const t of base) if (notes[t.id]) t.note = notes[t.id];
+
   // A refund pointed at a spend takes that spend's category and nets against it —
   // so a 3,000 fee refunded 2,500 reads as 500, which is what it cost.
   // Copies, not the base rows themselves: everything below writes onto these
@@ -494,7 +497,11 @@ function render() {
         state.txnLimit += 150;
         render();
       },
-    }
+    },
+    (id, text) => {
+      store.setNote(id, text);
+      render();
+    },
   );
 }
 
@@ -2559,7 +2566,7 @@ function applyFilters(txns) {
     // Anything without an explicit source predates the bank importer and is M-PESA.
     if (state.acctFilter !== 'all' && (t.accountSource || 'mpesa') !== state.acctFilter) return false;
     if (!q) return true;
-    return `${t.counterparty} ${t.receipt} ${t.account || ''} ${t.type}`.toLowerCase().includes(q);
+    return `${t.counterparty} ${t.receipt} ${t.account || ''} ${t.type} ${t.note || ''}`.toLowerCase().includes(q);
   });
 }
 
