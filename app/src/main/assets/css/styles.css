@@ -315,6 +315,17 @@ select.budget-assign { pointer-events: none; }
 .set-check { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
 .set-check input { width: 22px; height: 22px; accent-color: var(--tint); }
 .set-check .hint { grid-column: 1 / -1; }
+/* ---- what your lenders say ----------------------------------------- */
+.loan-row { padding: 10px 0; border-top: 1px solid var(--card-line); }
+.loan-row:first-of-type { border-top: 0; }
+.loan-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.loan-head b { font-size: 14.5px; }
+.loan-owed { font-size: 16px; font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
+.loan-row.cleared .loan-owed { color: var(--good, var(--tint)); font-size: 13px; font-weight: 700; }
+.loan-sub { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+.loan-price { font-size: 12px; color: var(--ink2); margin-top: 4px; }
+.loan-row.dear .loan-price b { color: var(--bad); }
+
 /* ---- a note on a row ------------------------------------------------ */
 .note-line { margin-top: 4px; }
 .note-btn {

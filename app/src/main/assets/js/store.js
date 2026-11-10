@@ -59,6 +59,9 @@ const empty = () => ({
   // a refund in notes: {id, date, amount, note}. Not transactions and not
   // income; they only say where cash the app never saw drawn came from.
   cashIn: [],
+  // What lenders have said: {id, kind, lender, at, principal, fee, due, dueDate,
+  // amount}. Not transactions; the ledger in js/loans.js reads them.
+  loanNotices: {},
   // LENDER -> the day it last told us a loan of its was finished. Not money, so
   // not a transaction; it is what stops a settled loan being predicted forever.
   settlements: {},
@@ -584,6 +587,26 @@ export function noteSettlements(list) {
   return changed;
 }
 
+/** Keep what a lender said, once: the same message read twice is one notice. */
+export function addLoanNotices(list) {
+  if (!state.loanNotices || Array.isArray(state.loanNotices)) state.loanNotices = {};
+  let added = 0;
+  for (const n of list || []) {
+    if (!n || !n.lender || !n.kind) continue;
+    const id = `${String(n.at || '').slice(0, 16)}|${n.kind}|${n.lender}|${n.due ?? n.amount ?? n.principal ?? ''}`;
+    if (state.loanNotices[id]) continue;
+    state.loanNotices[id] = { ...n, id };
+    added += 1;
+  }
+  if (added) save();
+  return added;
+}
+
+export function loanNotices() {
+  if (!state.loanNotices || Array.isArray(state.loanNotices)) state.loanNotices = {};
+  return Object.values(state.loanNotices);
+}
+
 export function settlements() {
   return state.settlements || {};
 }
@@ -990,6 +1013,7 @@ export function importJSON(text) {
 
   state.overrides = { ...state.overrides, ...(incoming.overrides || {}) };
   state.notes = { ...(state.notes || {}), ...(incoming.notes || {}) };
+  state.loanNotices = { ...(state.loanNotices || {}), ...(incoming.loanNotices || {}) };
   state.splits = { ...state.splits, ...(incoming.splits || {}) };
   state.budgetMonths = { ...state.budgetMonths, ...(incoming.budgetMonths || {}) };
   state.refundLinks = { ...state.refundLinks, ...(incoming.refundLinks || {}) };

@@ -538,6 +538,117 @@ const SETTLED_LENDER = [
   /your\s+([A-Za-z][A-Za-z0-9 .&-]{0,30}?)\s+(?:Mobile\s+|M-?PESA\s+)?[Ll]oan/i,
 ];
 
+/*
+ * What a lender says about a loan, as distinct from money moving.
+ *
+ * These messages were all on the ignore list, rightly, as transactions: the
+ * money they describe either moved through the wallet (and was recorded
+ * there) or never moved at all. But they carry what no wallet row does - the
+ * fee that was charged, the figure the lender wants back, and the day it
+ * wants it - and a "fully paid" that closes the account. Read as NOTICES they
+ * become a ledger; see js/loans.js. Account and loan numbers in the wording
+ * are deliberately not captured.
+ */
+const KES = String.raw`(?:KES|Ksh\.?)\s?`;
+const SUM = (name) => String.raw`${KES}(?<${name}>[\d,]+(?:\.\d{1,2})?)`;
+const DMY = (name) => String.raw`(?<${name}>\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})`;
+const NOTICE_SHAPES = [
+  {
+    // "your loan of KES 1,120.00 has been processed and sent to your KCB
+    // M-PESA Account with a facility fee of KES 527.85 charged. ... Your
+    // repayment of KES 6,597.85 is due on 05/12/2026."
+    kind: 'drawn',
+    re: new RegExp(
+      `loan of ${SUM('principal')} has been processed and (?:sent|credited) to your (?<lender>KCB M-?PESA|KCB) Account` +
+        `(?:[^.]*?facility fee of ${SUM('fee')})?` +
+        `(?:[^]*?repayment of ${SUM('due')} is due (?:on|by) ${DMY('date')})?`,
+      'i',
+    ),
+  },
+  {
+    // "Your M-Shwari loan has been approved ... Ksh1,970.00 ... Facility fee
+    // Ksh148.00 ... Repay Ksh2,118.00 by 23/4/24"
+    kind: 'drawn',
+    re: new RegExp(
+      `Your (?<lender>M-?Shwari) loan has been approved[^]*?${SUM('principal')}` +
+        `(?:[^]*?[Ff]acility fee (?:of )?${SUM('fee')})?` +
+        `(?:[^]*?[Rr]epay ${SUM('due')} by ${DMY('date')})?`,
+      'i',
+    ),
+  },
+  {
+    // A reminder: "Your repayment of KES 6,597.85 is due on 05/12/2026",
+    // "balance of KES 8,170.00 is due on 01/12/2026", "outstanding ... due on".
+    kind: 'due',
+    re: new RegExp(
+      `(?:repayment|balance|outstanding(?: loan)?(?: balance)?) of ${SUM('due')} is due (?:on|by) ${DMY('date')}`,
+      'i',
+    ),
+  },
+  {
+    // The bank acknowledging a repayment it received, for a loan it holds.
+    kind: 'repaid',
+    re: new RegExp(
+      `(?:MOBI LOAN REPAYMENT request of ${SUM('amount')}|payment of ${SUM('amount2')} (?:for|to) (?<lender>KCB Mobile Loan|VOOMA Loan|KCB M-?PESA)[^.]*?(?:has been )?received)`,
+      'i',
+    ),
+    lender: 'KCB Mobile Loan',
+  },
+  {
+    kind: 'cleared',
+    re: SETTLED_RE,
+  },
+];
+
+/** The lender a notice is about: named in it, or else whoever sent it. */
+function noticeLender(body, groups, fallback) {
+  if (groups && groups.lender) return groups.lender;
+  if (/m-?shwari/i.test(body)) return 'M-Shwari';
+  if (/kcb\s*m-?pesa/i.test(body)) return 'KCB M-PESA';
+  if (/kcb|mobi\s*loan/i.test(body)) return 'KCB Mobile Loan';
+  if (/fuliza/i.test(body)) return 'Fuliza';
+  const named = SETTLED_LENDER.map((re) => body.match(re)).find(Boolean);
+  if (named) return named[1];
+  return fallback || '';
+}
+
+const noticeSum = (v) => (v == null ? null : Number(String(v).replace(/,/g, '')) || null);
+function dmyToIso(v) {
+  const m = String(v || '').match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if (!m) return null;
+  let y = Number(m[3]);
+  if (y < 100) y += 2000;
+  return `${y}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`;
+}
+
+/** Every notice in one message, each stamped with the message's own time. */
+function loanNotices(body, at, sender) {
+  const out = [];
+  for (const shape of NOTICE_SHAPES) {
+    const m = body.match(shape.re);
+    if (!m) continue;
+    const g = m.groups || {};
+    const lender = noticeLender(body, { lender: g.lender || shape.lender }, sender);
+    if (!lender) continue;
+    const n = { kind: shape.kind, lender, at: at || '' };
+    if (shape.kind === 'drawn') {
+      n.principal = noticeSum(g.principal);
+      n.fee = noticeSum(g.fee);
+      n.due = noticeSum(g.due);
+      n.dueDate = dmyToIso(g.date);
+    } else if (shape.kind === 'due') {
+      n.due = noticeSum(g.due);
+      n.dueDate = dmyToIso(g.date);
+    } else if (shape.kind === 'repaid') {
+      n.amount = noticeSum(g.amount || g.amount2);
+    }
+    out.push(n);
+  }
+  // A draw that states its repayment already says what is due; the separate
+  // reminder shape would say it a second time.
+  return out.some((n) => n.kind === 'drawn' && n.due) ? out.filter((n) => n.kind !== 'due') : out;
+}
+
 /** The first word of a lender's name, which is the part that identifies it. */
 function lenderKey(name) {
   const w = String(name || '').trim().split(/\s+/)[0] || '';
@@ -546,12 +657,13 @@ function lenderKey(name) {
 
 /**
  * @param {string} raw one or more M-PESA SMS messages
- * @returns {{transactions: object[], unparsed: string[], ignored: number, settled: object[]}}
+ * @returns {{transactions: object[], unparsed: string[], ignored: number, settled: object[], notices: object[]}}
  */
 export function parseMessages(raw) {
   const transactions = [];
   const unparsed = [];
   const settled = [];
+  const notices = [];
   let ignored = 0;
   // Messages arrive oldest first. A dateless message (a Fuliza repayment) happens
   // within seconds of the transaction that triggered it, so the previous one's
@@ -569,6 +681,8 @@ export function parseMessages(raw) {
       const key = lenderKey(named && named[1]);
       if (key) settled.push({ lender: key, date: (at || lastDate || '').slice(0, 10) });
     }
+    // Read before the ignore list gets its say: the notices live on it.
+    notices.push(...loanNotices(body, at || lastDate, senderOf(block)));
 
     const echo = account && BANK_ECHOES.some((re) => re.test(body));
     const txns = account
@@ -585,7 +699,13 @@ export function parseMessages(raw) {
       unparsed.push(body);
     }
   }
-  return { transactions, unparsed, ignored, settled };
+  return { transactions, unparsed, ignored, settled, notices };
+}
+
+/** The sender's name off the phone's stamp, for a notice that names nobody. */
+function senderOf(block) {
+  const m = block.match(STAMP_RE);
+  return m && m[2] ? m[2].trim() : '';
 }
 
 // The app wraps each message the phone hands over in its own timestamp and the

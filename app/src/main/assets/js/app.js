@@ -20,6 +20,7 @@ import { salaryRuns, monthResolver, cycleMonthOf } from './salary.js';
 import { balanceSeries, lowDays, fulizaReport } from './balance.js';
 import { findRecurring, committedMonthly } from './recurring.js';
 import { budgetReport } from './budgets.js';
+import { loanLedger } from './loans.js';
 import * as basket from './basket.js';
 import { ACCOUNT_LABELS } from './import.js';
 import * as cash from './cash.js';
@@ -1717,7 +1718,85 @@ function wireAddLender(el) {
   );
 }
 
+/**
+ * What your lenders say - the ledger built from their own messages.
+ *
+ * Shown above the balances you typed in, because it is the figure the lender
+ * will hold you to: what it wants back, by when, and what it charged. The
+ * price is worked out from the latest draw and written two ways, as the fee
+ * on what was borrowed and as what that comes to per month, which is the only
+ * number that lets a 25-day loan be compared with a 60-day one.
+ */
+function renderLoanLedger(txns) {
+  const box = $('#loan-ledger');
+  if (!box) return;
+  const rows = loanLedger(store.loanNotices(), txns, isoDay(new Date()));
+  if (!rows.length) {
+    // Nothing kept yet. On the phone that usually means the lenders' messages
+    // were read before the app knew to keep them: the reader only fetches
+    // what is newer than its last look, so they have to be read once more.
+    const phone = Boolean(window.Android && window.Android.readSms);
+    box.hidden = !phone;
+    box.innerHTML = phone
+      ? `<h2>What your lenders say</h2>
+         <p class="hint">The app now keeps what KCB, KCB M-PESA and M-Shwari say about your loans -
+           what each wants back, by when, and the fee. Messages read before this version were not
+           kept, so read the inbox once more to pick them up. Nothing is counted twice.</p>
+         <button class="ghost" type="button" id="btn-loan-reread">Read my messages again</button>`
+      : '';
+    const again = $('#btn-loan-reread');
+    if (again) again.addEventListener('click', () => {
+      showView('intake');
+      $('#btn-sms-all').click();
+    });
+    return;
+  }
+  box.hidden = false;
+  const pct = (x) => `${(x * 100).toFixed(x * 100 >= 10 ? 0 : 1)}%`;
+  const open = rows.filter((r) => !r.cleared);
+  const owed = open.reduce((s, r) => s + r.owed, 0);
+  box.innerHTML = `
+    <h2>What your lenders say</h2>
+    <p class="hint">Read from the lenders' own messages: the figure each one wants back, by when,
+      and what it charged. ${open.length ? `<strong>${viz.fmt(owed)}</strong> owed across ${open.length} loan${open.length === 1 ? '' : 's'}.` : 'Nothing open.'}</p>
+    ${rows
+      .map((r) => {
+        const p = r.price;
+        const dear = p && p.monthly != null && p.monthly >= 0.1;
+        const when = r.dueDate
+          ? r.daysLeft == null ? shortDate(r.dueDate)
+            : r.daysLeft < 0 ? `was due ${shortDate(r.dueDate)}`
+              : r.daysLeft === 0 ? 'due today'
+                : `due ${shortDate(r.dueDate)} \u00b7 ${r.daysLeft} day${r.daysLeft === 1 ? '' : 's'}`
+          : '';
+        return `<div class="loan-row${r.cleared ? ' cleared' : ''}${dear ? ' dear' : ''}">
+          <div class="loan-head">
+            <b>${escapeHtml(r.lender)}</b>
+            <span class="loan-owed">${r.cleared ? 'cleared' : viz.fmt(r.owed)}</span>
+          </div>
+          <div class="loan-sub">${
+            r.cleared
+              ? `Said fully paid${r.clearedAt ? ` on ${shortDate(r.clearedAt)}` : ''}.`
+              : [
+                  r.stated != null ? `Wanted ${viz.fmt(r.stated)} as of ${shortDate(r.statedAt)}` : '',
+                  r.repaidSince > 0 ? `${viz.fmt(r.repaidSince)} repaid since` : '',
+                  when,
+                ].filter(Boolean).join(' \u00b7 ')
+          }</div>
+          ${p
+            ? `<div class="loan-price">Fee ${viz.fmt(p.fee)} on ${viz.fmt(p.on)} = <b>${pct(p.rate)}</b>${
+                p.termDays ? ` for ${p.termDays} days` : ''
+              }${p.monthly != null ? ` \u2248 <b>${pct(p.monthly)} a month</b>` : ''}${
+                dear ? ' \u2014 expensive' : ''
+              }</div>`
+            : ''}
+        </div>`;
+      })
+      .join('')}`;
+}
+
 function renderDebts(txns) {
+  renderLoanLedger(txns);
   const list = store.payables();
   const el = $('#debts');
   if (!list.length) {
@@ -2845,8 +2924,8 @@ function handlePaste() {
   const raw = $('#sms-input').value;
   if (!raw.trim()) return;
 
-  const { transactions, unparsed, ignored, settled } = parseMessages(raw);
-  const noted = store.noteSettlements(settled);
+  const { transactions, unparsed, ignored, settled, notices } = parseMessages(raw);
+  const noted = store.noteSettlements(settled) + store.addLoanNotices(notices);
   if (!transactions.length) {
     // A message can carry no money and still change the picture - a lender
     // saying a loan is finished removes it from what is expected next.
@@ -3209,7 +3288,8 @@ function handleShared() {
   // (Dedupe would catch it anyway, but the toast lying "added 1" would not.)
   history.replaceState(null, '', location.pathname);
 
-  const { transactions, unparsed } = parseMessages(shared);
+  const { transactions, unparsed, notices } = parseMessages(shared);
+  store.addLoanNotices(notices);
   if (!transactions.length) {
     $('#sms-input').value = shared;
     showView('intake');
@@ -4974,8 +5054,9 @@ function wireSms() {
   let tally = { added: 0, duplicate: 0, unparsed: [], ignored: 0 };
   window.onSmsBatch = (text, done, found, truncated, newestAt) => {
     if (text) {
-      const { transactions, unparsed, ignored, settled } = parseMessages(text);
+      const { transactions, unparsed, ignored, settled, notices } = parseMessages(text);
       store.noteSettlements(settled);
+      store.addLoanNotices(notices);
       const counts = store.addTransactions(transactions);
       tally.added += counts.added;
       tally.duplicate += counts.duplicate;
