@@ -16,7 +16,7 @@ import { monthResolver, cycleStartOf } from './salary.js';
 // already stored the old lines pick up the new structure — see store.budgets().
 // v2: split Electricity + Househelp onto their own categories, and gave every
 // remaining spending category a line so nothing real hides in "outside any budget".
-export const BUDGET_SEED_VERSION = 2;
+export const BUDGET_SEED_VERSION = 3;
 
 // Every SPENDING category maps to exactly one line here, except Uncategorised — that
 // one is left out on purpose so "outside any budget" means "money I haven't identified
@@ -31,6 +31,7 @@ export const DEFAULT_BUDGETS = [
   { id: 'fun', label: 'Entertainment', amount: 0, categories: ['Entertainment'] },
   { id: 'food', label: 'Groceries', amount: 0, categories: ['Groceries'] },
   { id: 'car', label: 'Fuel, transport & car', amount: 0, categories: ['Transport & Fuel', 'Car & Mechanic'] },
+  { id: 'repairs', label: 'Repairs & maintenance', amount: 0, categories: ['Repairs & Maintenance'] },
   { id: 'shop', label: 'Shopping & services', amount: 0, categories: ['Shopping', 'Personal Care', 'Health & Pharmacy'] },
   { id: 'family', label: 'Family & support', amount: 0, categories: ['Family'] },
   { id: 'misc', label: 'Cash, fees & other', amount: 0, categories: ['Cash Withdrawal', 'Government & Fees', 'Sent to People', 'Other'] },

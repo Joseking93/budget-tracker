@@ -71,6 +71,9 @@ const G = {
   cart:
     'M2.8 4.4h2.6l2.4 11.2h9.8l2.2-8.2H6.2 M9.6 19.8a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8z'
     + ' M16.6 19.8a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8z',
+  wrench:
+    'M14.7 6.3a4 4 0 0 0 5.2 5.2l-8.4 8.4a1.8 1.8 0 0 1-2.6-2.6l8.4-8.4a4 4 0 0 0-2.6-2.6z'
+    + ' M14.7 6.3 17.2 3.8 20.2 6.8 17.7 9.3',
   pill:
     'M13.6 4.6a4.8 4.8 0 0 1 6.8 6.8l-6.6 6.6a4.8 4.8 0 0 1-6.8-6.8z M8.4 9.8l6.8 6.8',
 };
@@ -92,6 +95,8 @@ const RULES = [
   // to the next rule and gets the car. Both matched the one rule before this,
   // which is how the ring ended up with two pumps on it.
   [/transport|fuel|petrol|matatu|uber|fare/i, 'fuel'],
+  // Before car: a "car repair" line is repairs, and the car rule would take it.
+  [/repair|mainten|fundi|plumb|electrician|servicing/i, 'wrench'],
   [/car\b|mechanic|garage|panel ?beat/i, 'car'],
   [/airtime|data|bundle/i, 'phone'],
   [/internet|wifi|fibre|fiber|online/i, 'wifi'],
@@ -153,6 +158,7 @@ const EMOJI = {
   swap: '🔄',
   tag: '🏷️',
   cart: '🛒',
+  wrench: '🔧',
   pill: '🩹',
 };
 

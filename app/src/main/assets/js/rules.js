@@ -54,6 +54,10 @@ export const CATEGORIES = {
   // flagged for you to assign rather than quietly folded into a category it may not
   // belong to.
   Uncategorised: { class: CLASSES.SPENDING },
+  // The fundi, the plumber, the oven: money that keeps a thing working. It was
+  // landing under "Other Services" with a note saying "oven repair", which is
+  // a category doing the job of a note and a note doing the job of a category.
+  'Repairs & Maintenance': { class: CLASSES.SPENDING },
   Other: { class: CLASSES.SPENDING },
 
   'M-PESA Charges': { class: CLASSES.FEE },
