@@ -21,7 +21,12 @@ object SmsReader {
       * LIKE is case-insensitive for ASCII in SQLite, so the spelling of the
       * sender's name does not have to be guessed exactly.
       */
-    private val SENDER_NAMES = listOf("MPESA", "M-PESA", "KCB", "KCB M-PESA", "StanChart")
+    private val SENDER_NAMES = listOf(
+        "MPESA", "M-PESA", "KCB", "KCB M-PESA", "StanChart",
+        // The lenders. M-Shwari reminders come from "M-Shwari", not from MPESA,
+        // and were never handed over at all; the same for NCBA's Loop.
+        "M-Shwari", "MSHWARI", "NCBA", "NCBA LOOP", "LOOP", "Fuliza", "Zenka", "Tala",
+    )
 
     private val SENDERS = SENDER_NAMES.joinToString(" OR ") { "address LIKE '" + it + "'" }
 
@@ -38,7 +43,7 @@ object SmsReader {
         Regex("""^[A-Za-z0-9]{10}\s+confirmed""", RegexOption.IGNORE_CASE)
 
     /** A bank message is worth reading if it mentions an amount of money. */
-    private val HAS_MONEY = Regex("""(?:KES|Ksh)\s?[\d,]+""", RegexOption.IGNORE_CASE)
+    private val HAS_MONEY = Regex("""(?:KES|Kshs?\.?)\s?[\d,]+""", RegexOption.IGNORE_CASE)
 
     /**
      * Never read, never handed over, never stored.
@@ -48,7 +53,7 @@ object SmsReader {
      * unrecognised - the not-recognised panel prints what it could not read.
      */
     private val IS_A_SECRET = Regex(
-        """activation code|one[- ]?time|\bOTP\b|\bPIN\b|code:\s*\d|do not share""",
+        """activation code|one[- ]?time|\bOTP\b|\bPIN\b(?!\s+yako)|code:\s*\d|do not share""",
         RegexOption.IGNORE_CASE,
     )
 

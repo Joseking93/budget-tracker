@@ -5,7 +5,7 @@
  * something you can see rather than something you have to deduce from a bug
  * that will not die.
  */
-export const ASSET_BUILD = '6.46';
+export const ASSET_BUILD = '6.47';
 
 // Who you are, across accounts — held at runtime, NOT written here.
 //

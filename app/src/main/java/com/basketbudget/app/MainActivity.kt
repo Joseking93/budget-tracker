@@ -687,7 +687,11 @@ class MainActivity : ComponentActivity() {
         // Only what has arrived since last time, so re-reading is quick. The
         // page ignores duplicates anyway - every transaction is keyed by its
         // M-PESA receipt - so this is about speed, not correctness.
-        val since = if (all) 0L else prefs.getLong(KEY_NEWEST_SMS, 0L)
+        // When the reader learns new senders (6.47: M-Shwari, NCBA) the old
+        // messages from them are older than the last look, so the first read
+        // after the update is a full one. Duplicates are dropped by the page.
+        val fullOnce = prefs.getInt(KEY_READER_GEN, 0) < READER_GEN
+        val since = if (all || fullOnce) 0L else prefs.getLong(KEY_NEWEST_SMS, 0L)
         if (!quiet) {
             smsSays(
                 if (all) "Reading every M-PESA message" + ELLIPSIS
@@ -709,6 +713,7 @@ class MainActivity : ComponentActivity() {
                 if (batch.newest > since) {
                     prefs.edit().putLong(KEY_NEWEST_SMS, batch.newest).apply()
                 }
+                if (fullOnce) prefs.edit().putInt(KEY_READER_GEN, READER_GEN).apply()
                 // The widget carries the answer whichever way the read was
                 // started, so "is the tracker up to date" can be settled from
                 // the home screen without opening anything.
@@ -1198,6 +1203,9 @@ class MainActivity : ComponentActivity() {
         const val BASKET_PAGE = "basket.html"
         const val SMS_PREFS = "sms"
         const val KEY_NEWEST_SMS = "newest"
+        const val KEY_READER_GEN = "readerGen"
+        /** Bump when the reader starts handing over messages it used to skip. */
+        const val READER_GEN = 2
         const val SMS_CHUNK = 200
         /** A blank line between messages is what the page's splitter expects. */
         const val BLANK_LINE = "\n\n"

@@ -83,8 +83,17 @@ export function loanLedger(notices, txns, today) {
       repaid += n.amount;
     }
 
-    const closedAfter = cleared && stated && cleared.at > stated.at;
-    const owed = !stated || closedAfter ? 0 : Math.max(0, stated.due - repaid);
+    // A balance and "is now fully paid" can land in the same minute - the
+    // balance sentence describes the state before the final sweep - so a
+    // clearing at the same time as the statement wins.
+    const closedAfter = cleared && stated && cleared.at >= stated.at;
+    const isCleared = Boolean(closedAfter || (cleared && !stated));
+    // Nothing stated, nothing cleared, no draw: nothing to say about it.
+    if (!stated && !cleared && !drawn) continue;
+    // A clearing is news for a while; a loan paid off years ago is not a row.
+    if (isCleared && cleared && today && days(day(cleared.at), today) > 60) continue;
+    const openingOwed = stated ? stated.due : drawn ? (drawn.principal || 0) + (drawn.fee || 0) : 0;
+    const owed = isCleared ? 0 : Math.max(0, openingOwed - repaid);
 
     // The price. The fee is charged on the whole facility the due figure
     // covers, not only on today's top-up: a 1,120 top-up with a 527 fee on a
@@ -106,12 +115,12 @@ export function loanLedger(notices, txns, today) {
     rows.push({
       lender,
       owed,
-      stated: stated ? stated.due : null,
-      statedAt: stated ? day(stated.at) : null,
+      stated: stated ? stated.due : drawn ? openingOwed : null,
+      statedAt: stated ? day(stated.at) : drawn ? day(drawn.at) : null,
       dueDate: stated && stated.dueDate ? stated.dueDate : null,
       daysLeft: stated && stated.dueDate && today ? days(today, stated.dueDate) : null,
       repaidSince: repaid,
-      cleared: Boolean(closedAfter || (cleared && !stated)),
+      cleared: isCleared,
       clearedAt: cleared ? day(cleared.at) : null,
       price,
       lastNotice: day(list[list.length - 1].at),
