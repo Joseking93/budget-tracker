@@ -9,7 +9,7 @@
 // there's no obvious way to hard-refresh.
 
 // Bump when the shell list changes so the old cache is dropped on activate.
-const VERSION = 'budget-tracker-v25';
+const VERSION = 'budget-tracker-v26';
 
 const SHELL = [
   './',

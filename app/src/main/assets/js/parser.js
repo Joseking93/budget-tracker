@@ -422,6 +422,9 @@ const BANK_ECHOES = [
   // Anything quoting the wallet's own receipt is the wallet's movement, seen
   // from the other side. The colon is not always there.
   /M-?PESA\s+Ref/i,
+  // "MBNHE3BKQPFW2QOJ KES 2,000.00 sent from 120****913 to 254****993 - JOSE":
+  // the bank account paying out to the wallet, which texts its own receipt.
+  /sent from \d{2,}\*+\d{2,} to 254\*+\d{2,}/i,
   /to\s+MPESA has been processed/i,
   /transferr?ed .* to your MPESA Account/i,
   /sent to M-?PESA \d/i,
@@ -574,9 +577,13 @@ const NOTICE_SHAPES = [
     // repayment of KES 6,597.85 is due on 05/12/2026."
     kind: 'drawn',
     re: new RegExp(
-      `loan of ${SUM('principal')} has been processed and (?:sent|credited) to your (?<lender>KCB M-?PESA|KCB) Account` +
-        `(?:[^.]*?facility fee of ${SUM('fee')})?` +
-        `(?:[^]*?repayment of ${SUM('due')} is due (?:on|by) ${DMY('date')})?`,
+      // KCB's bank-side loan says it differently: "your KCB Mobile Loan of
+      // KES 2,000.00 has been approved and credited to your KCB Account. A
+      // facility fee of KES 2719.25 has been charged. Your First instalment of
+      // KES 4,719.25 is due on 26/11/2026." The fee is a sentence of its own.
+      `loan of ${SUM('principal')} has been (?:processed|approved) and (?:sent|credited) to your (?<lender>KCB M-?PESA|KCB) Account` +
+        `(?:[^]*?facility fee of ${SUM('fee')})?` +
+        `(?:[^]*?(?:repayment|instal?lment) of ${SUM('due')} is due (?:on|by) ${DMY('date')})?`,
       'i',
     ),
   },
@@ -596,7 +603,7 @@ const NOTICE_SHAPES = [
     // "balance of KES 8,170.00 is due on 01/12/2026", "outstanding ... due on".
     kind: 'due',
     re: new RegExp(
-      `(?:loan|repayment|balance|outstanding(?: loan)?(?: balance)?) of ${SUM('due')} is due (?:on|by) ${DMY('date')}`,
+      `(?:loan|repayment|instal?lment|balance|outstanding(?: loan)?(?: balance)?) of ${SUM('due')} is due (?:on|by) ${DMY('date')}`,
       'i',
     ),
   },
