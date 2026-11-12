@@ -496,7 +496,22 @@ const NOT_A_TRANSACTION = [
   /loan (?:no\.?|number)?\s*\d+ is now fully paid/i,
 
   // Advertising. A lender with your number sends a great deal of it, and none
-  // of it is money.
+  // of it is money. M-Shwari alone sent one of these 51 times.
+  /pay your loan in full before/i,
+  /#?jijenge\s*na\s*m-?shwari/i,
+  /#?pamoja\s*na\s*m-?shwari/i,
+  /request loan/i,
+  /borrow up to/i,
+  /kugrow limit|kuza limit|limit yako/i,
+  /grow your limit/i,
+  /limit has grown|limit grow even higher/i,
+  /usikwame/i,
+  /access your loan limit|loan limit of/i,
+  /top up any time/i,
+  /query on loan|has been resolved/i,
+  // A bank's mini statement is history, and all of it is already in the
+  // wallet rows; reading it would count every line a second time.
+  /mini[- ]?statement/i,
   /need extra cash/i,
   /pata extra cash/i,
   /more bills\?/i,
@@ -702,7 +717,8 @@ export function parseMessages(raw) {
       if (key) settled.push({ lender: key, date: (at || lastDate || '').slice(0, 10) });
     }
     // Read before the ignore list gets its say: the notices live on it.
-    notices.push(...loanNotices(body, at || lastDate, senderOf(block)));
+    const said = loanNotices(body, at || lastDate, senderOf(block));
+    notices.push(...said);
 
     const echo = account && BANK_ECHOES.some((re) => re.test(body));
     const txns = account
@@ -713,7 +729,9 @@ export function parseMessages(raw) {
     if (txns.length) {
       transactions.push(...txns);
       lastDate = txns[0].date || lastDate;
-    } else if (echo || NOT_A_TRANSACTION.some((re) => re.test(body))) {
+    } else if (said.length || echo || NOT_A_TRANSACTION.some((re) => re.test(body))) {
+      // A lender's notice is not a transaction, but it was read, so it is
+      // not "unrecognised" either.
       ignored++;
     } else {
       unparsed.push(body);
