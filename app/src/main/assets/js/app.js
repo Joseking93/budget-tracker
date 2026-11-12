@@ -1731,7 +1731,25 @@ function renderLoanLedger(txns) {
   const box = $('#loan-ledger');
   if (!box) return;
   const rows = loanLedger(store.loanNotices(), txns, isoDay(new Date()));
-  if (!rows.length) {
+  // The balances typed in by hand - plots, a logbook loan - belong in the
+  // same list as the lenders' own figures: owed is owed, whoever said it.
+  // Settled ones stay out; the panel below shows them on request.
+  const typed = store.payables()
+    .map((p) => ({ p, c: computePayable(p, txns) }))
+    .filter((r) => r.c.owed > 0.5)
+    .map((r) => ({
+      lender: r.p.name,
+      owed: r.c.owed,
+      // `due` is typed free text ("Target Feb 2027"); only a real date gets a countdown.
+      dueDate: r.p.due || null,
+      daysLeft: r.p.due && Number.isFinite(Date.parse(r.p.due))
+        ? Math.round((Date.parse(r.p.due) - Date.parse(isoDay(new Date()))) / 86400000)
+        : null,
+      typed: true,
+      kind: r.p.kind,
+    }))
+    .sort((x, y) => y.owed - x.owed);
+  if (!rows.length && !typed.length) {
     // Nothing kept yet. On the phone that usually means the lenders' messages
     // were read before the app knew to keep them: the reader only fetches
     // what is newer than its last look, so they have to be read once more.
@@ -1754,11 +1772,25 @@ function renderLoanLedger(txns) {
   box.hidden = false;
   const pct = (x) => `${(x * 100).toFixed(x * 100 >= 10 ? 0 : 1)}%`;
   const open = rows.filter((r) => !r.cleared);
-  const owed = open.reduce((s, r) => s + r.owed, 0);
+  const owed = open.reduce((s, r) => s + r.owed, 0) + typed.reduce((s, r) => s + r.owed, 0);
+  const count = open.length + typed.length;
+  const soonest = [...open, ...typed]
+    .filter((r) => r.daysLeft != null && r.daysLeft >= 0)
+    .sort((x, y) => x.daysLeft - y.daysLeft)[0];
   box.innerHTML = `
-    <h2>What your lenders say</h2>
-    <p class="hint">Read from the lenders' own messages: the figure each one wants back, by when,
-      and what it charged. ${open.length ? `<strong>${viz.fmt(owed)}</strong> owed across ${open.length} loan${open.length === 1 ? '' : 's'}.` : 'Nothing open.'}</p>
+    <h2>Everything you owe</h2>
+    <p class="owed-big">${viz.fmt(owed)}</p>
+    <p class="hint">${count ? `Across ${count} item${count === 1 ? '' : 's'}` : 'Nothing open'}${
+      soonest ? ` \u00b7 next due: ${escapeHtml(soonest.lender)} ${soonest.daysLeft === 0 ? 'today' : `in ${soonest.daysLeft} day${soonest.daysLeft === 1 ? '' : 's'}`}` : ''
+    }. Lenders' figures come from their own messages; plots and other balances are the ones you typed in below.</p>
+    ${typed
+      .map((r) => `<div class="loan-row">
+        <div class="loan-head"><b>${escapeHtml(r.lender)}</b><span class="loan-owed">${viz.fmt(r.owed)}</span></div>
+        <div class="loan-sub">${r.kind === 'fixed' ? 'Paying down' : 'Revolving'}${
+          r.dueDate ? ` \u00b7 ${escapeHtml(prettyDue(r.dueDate))}` : ''
+        }${r.daysLeft != null ? (r.daysLeft < 0 ? ' \u00b7 overdue' : ` \u00b7 ${r.daysLeft} day${r.daysLeft === 1 ? '' : 's'}`) : ''}</div>
+      </div>`)
+      .join('')}
     ${rows
       .map((r) => {
         const p = r.price;

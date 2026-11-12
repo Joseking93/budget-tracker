@@ -316,6 +316,7 @@ select.budget-assign { pointer-events: none; }
 .set-check input { width: 22px; height: 22px; accent-color: var(--tint); }
 .set-check .hint { grid-column: 1 / -1; }
 /* ---- what your lenders say ----------------------------------------- */
+.owed-big { margin: 2px 0 2px; font-size: 32px; font-weight: 900; letter-spacing: -.035em; }
 .loan-row { padding: 10px 0; border-top: 1px solid var(--card-line); }
 .loan-row:first-of-type { border-top: 0; }
 .loan-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }

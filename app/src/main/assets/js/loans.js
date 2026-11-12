@@ -26,6 +26,7 @@ export function lenderKey(name) {
   if (/zenka/.test(s)) return 'Zenka';
   if (/timiza/.test(s)) return 'Timiza';
   if (/hustler/.test(s)) return 'Hustler Fund';
+  if (/ncba/.test(s)) return 'NCBA';
   return String(name || '').trim();
 }
 

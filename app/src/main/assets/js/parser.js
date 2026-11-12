@@ -549,7 +549,7 @@ const SETTLED_LENDER = [
  * become a ledger; see js/loans.js. Account and loan numbers in the wording
  * are deliberately not captured.
  */
-const KES = String.raw`(?:KES|Ksh\.?)\s?`;
+const KES = String.raw`(?:KES|Kshs?\.?)\s?`;
 const SUM = (name) => String.raw`${KES}(?<${name}>[\d,]+(?:\.\d{1,2})?)`;
 const DMY = (name) => String.raw`(?<${name}>\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})`;
 const NOTICE_SHAPES = [
@@ -581,7 +581,7 @@ const NOTICE_SHAPES = [
     // "balance of KES 8,170.00 is due on 01/12/2026", "outstanding ... due on".
     kind: 'due',
     re: new RegExp(
-      `(?:repayment|balance|outstanding(?: loan)?(?: balance)?) of ${SUM('due')} is due (?:on|by) ${DMY('date')}`,
+      `(?:loan|repayment|balance|outstanding(?: loan)?(?: balance)?) of ${SUM('due')} is due (?:on|by) ${DMY('date')}`,
       'i',
     ),
   },
@@ -593,6 +593,10 @@ const NOTICE_SHAPES = [
       'i',
     ),
     lender: 'KCB Mobile Loan',
+  },
+  {
+    kind: 'repaid',
+    re: new RegExp(`partially paid by ${SUM('amount')}`, 'i'),
   },
   {
     kind: 'cleared',
@@ -607,6 +611,7 @@ function noticeLender(body, groups, fallback) {
   if (/kcb\s*m-?pesa/i.test(body)) return 'KCB M-PESA';
   if (/kcb|mobi\s*loan/i.test(body)) return 'KCB Mobile Loan';
   if (/fuliza/i.test(body)) return 'Fuliza';
+  if (/ncba/i.test(body)) return 'NCBA';
   const named = SETTLED_LENDER.map((re) => body.match(re)).find(Boolean);
   if (named) return named[1];
   return fallback || '';
