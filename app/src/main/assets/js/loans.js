@@ -86,7 +86,9 @@ export function loanLedger(notices, txns, today) {
     // A balance and "is now fully paid" can land in the same minute - the
     // balance sentence describes the state before the final sweep - so a
     // clearing at the same time as the statement wins.
-    const closedAfter = cleared && stated && cleared.at >= stated.at;
+    // ... and the two messages can arrive seconds apart in either order, so
+    // a clearing on the SAME DAY as the statement, or later, wins.
+    const closedAfter = cleared && stated && day(cleared.at) >= day(stated.at);
     const isCleared = Boolean(closedAfter || (cleared && !stated));
     // Nothing stated, nothing cleared, no draw: nothing to say about it.
     if (!stated && !cleared && !drawn) continue;

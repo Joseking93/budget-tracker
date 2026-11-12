@@ -42,8 +42,15 @@ object SmsReader {
     private val LOOKS_LIKE_TRANSACTION =
         Regex("""^[A-Za-z0-9]{10}\s+confirmed""", RegexOption.IGNORE_CASE)
 
-    /** A bank message is worth reading if it mentions an amount of money. */
-    private val HAS_MONEY = Regex("""(?:KES|Kshs?\.?)\s?[\d,]+""", RegexOption.IGNORE_CASE)
+    /**
+     * A bank message is worth reading if it mentions an amount of money - or a
+     * loan: "your KCB M-PESA loan No. N is now fully paid" names no sum, and
+     * it is the one message that closes a loan.
+     */
+    private val HAS_MONEY = Regex(
+        """(?:KES|Kshs?\.?)\s?[\d,]+|fully (?:re)?paid|\bloan\b""",
+        RegexOption.IGNORE_CASE,
+    )
 
     /**
      * Never read, never handed over, never stored.

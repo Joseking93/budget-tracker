@@ -607,14 +607,29 @@ const NOTICE_SHAPES = [
 /** The lender a notice is about: named in it, or else whoever sent it. */
 function noticeLender(body, groups, fallback) {
   if (groups && groups.lender) return groups.lender;
-  if (/m-?shwari/i.test(body)) return 'M-Shwari';
-  if (/kcb\s*m-?pesa/i.test(body)) return 'KCB M-PESA';
-  if (/kcb|mobi\s*loan/i.test(body)) return 'KCB Mobile Loan';
-  if (/fuliza/i.test(body)) return 'Fuliza';
-  if (/ncba/i.test(body)) return 'NCBA';
+  // The sender's own name settles it before any sentence is read: "your total
+  // loan of Kshs 8170 is due" from M-Shwari is M-Shwari's, not "total"'s.
+  return knownLender(body) || knownLender(fallback) || sentenceLender(body) || fallback || '';
+}
+
+/** A lender named anywhere in a piece of text, by the words that identify it. */
+function knownLender(text) {
+  const t = String(text || '');
+  if (/m-?shwari/i.test(t)) return 'M-Shwari';
+  if (/kcb\s*m-?pesa/i.test(t)) return 'KCB M-PESA';
+  if (/kcb|mobi\s*loan/i.test(t)) return 'KCB Mobile Loan';
+  if (/fuliza/i.test(t)) return 'Fuliza';
+  if (/ncba|\bloop\b/i.test(t)) return 'NCBA';
+  return '';
+}
+
+/** Words that sit between "your" and "loan" without being anybody's name. */
+const NOT_A_LENDER = /^(?:total|new|current|outstanding|existing|first|next|previous|last|own|the|a|an|overdue|pending|active)$/i;
+
+function sentenceLender(body) {
   const named = SETTLED_LENDER.map((re) => body.match(re)).find(Boolean);
-  if (named) return named[1];
-  return fallback || '';
+  if (!named || NOT_A_LENDER.test(named[1].trim())) return '';
+  return named[1];
 }
 
 const noticeSum = (v) => (v == null ? null : Number(String(v).replace(/,/g, '')) || null);

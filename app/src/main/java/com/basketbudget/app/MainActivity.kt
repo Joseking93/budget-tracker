@@ -1205,7 +1205,7 @@ class MainActivity : ComponentActivity() {
         const val KEY_NEWEST_SMS = "newest"
         const val KEY_READER_GEN = "readerGen"
         /** Bump when the reader starts handing over messages it used to skip. */
-        const val READER_GEN = 2
+        const val READER_GEN = 3
         const val SMS_CHUNK = 200
         /** A blank line between messages is what the page's splitter expects. */
         const val BLANK_LINE = "\n\n"

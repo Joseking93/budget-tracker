@@ -593,6 +593,7 @@ export function addLoanNotices(list) {
   let added = 0;
   for (const n of list || []) {
     if (!n || !n.lender || !n.kind) continue;
+    if (NOT_A_LENDER.test(String(n.lender).trim())) continue;
     const id = `${String(n.at || '').slice(0, 16)}|${n.kind}|${n.lender}|${n.due ?? n.amount ?? n.principal ?? ''}`;
     if (state.loanNotices[id]) continue;
     state.loanNotices[id] = { ...n, id };
@@ -602,8 +603,16 @@ export function addLoanNotices(list) {
   return added;
 }
 
+// A lender name that is really a word from the sentence ("total", from "your
+// total loan of ..."). 6.47 stored some of these; they are dropped on sight,
+// and the next full read files the same messages under the sender's name.
+const NOT_A_LENDER = /^(?:total|new|current|outstanding|existing|first|next|previous|last|own|the|a|an|overdue|pending|active|loan|balance|your|amount|repayment|payment)$/i;
+
 export function loanNotices() {
   if (!state.loanNotices || Array.isArray(state.loanNotices)) state.loanNotices = {};
+  for (const [id, n] of Object.entries(state.loanNotices)) {
+    if (!n || NOT_A_LENDER.test(String(n.lender || '').trim())) delete state.loanNotices[id];
+  }
   return Object.values(state.loanNotices);
 }
 
