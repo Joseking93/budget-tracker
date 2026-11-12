@@ -315,17 +315,121 @@ select.budget-assign { pointer-events: none; }
 .set-check { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }
 .set-check input { width: 22px; height: 22px; accent-color: var(--tint); }
 .set-check .hint { grid-column: 1 / -1; }
-/* ---- what your lenders say ----------------------------------------- */
-.owed-big { margin: 2px 0 2px; font-size: 32px; font-weight: 900; letter-spacing: -.035em; }
-.loan-row { padding: 10px 0; border-top: 1px solid var(--card-line); }
-.loan-row:first-of-type { border-top: 0; }
-.loan-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.loan-head b { font-size: 14.5px; }
-.loan-owed { font-size: 16px; font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
-.loan-row.cleared .loan-owed { color: var(--good, var(--tint)); font-size: 13px; font-weight: 700; }
-.loan-sub { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
-.loan-price { font-size: 12px; color: var(--ink2); margin-top: 4px; }
-.loan-row.dear .loan-price b { color: var(--bad); }
+/* ---- what I owe: total on the page, tiles sized by amount ------------ */
+/* Not a card: the total sits on the page like a wallet balance, and the
+   cards below it are its own children, spaced like the view's. */
+.owe { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.owe p { margin: 0; }
+.owe > .card > .hint + button { margin-top: 12px; }
+.owe-lab { font-size: 12.5px; font-weight: 700; color: var(--ink2); }
+.owe-hero { padding: 2px 4px 2px; }
+.owe-big {
+  font-size: 44px; font-weight: 900; letter-spacing: -.045em; line-height: 1.1; margin: 2px 0 0 !important;
+  font-variant-numeric: tabular-nums;
+}
+.owe-sub { font-size: 12px; font-weight: 600; color: var(--ink2); margin-top: 3px !important; }
+.owe-sub em { font-style: normal; color: var(--warn); font-weight: 800; }
+
+/* Every width here is a share of the row and every child may shrink to
+   nothing, so no name or figure can push the page sideways. */
+.owe-tiles { display: flex; flex-direction: column; gap: 4px; border-radius: var(--r-xl); overflow: hidden; min-width: 0; }
+.owe-top { display: flex; gap: 4px; height: 168px; min-width: 0; }
+.owe-tile {
+  flex: 1 1 0; min-width: 0; overflow: hidden;
+  padding: 13px 13px 12px; display: flex; flex-direction: column; justify-content: space-between;
+}
+.owe-tile > span { min-width: 0; }
+.owe-tn { font-size: 12.5px; font-weight: 800; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owe-tp { display: block; font-size: 30px; font-weight: 900; letter-spacing: -.04em; line-height: 1; opacity: .9; }
+.owe-ta { display: block; font-size: 24px; font-weight: 900; letter-spacing: -.035em; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.owe-ts { display: block; font-size: 11px; font-weight: 700; opacity: .75; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owe-tile.is-narrow { padding: 11px 9px 10px; }
+.owe-tile.is-narrow .owe-tp { font-size: 19px; }
+.owe-tile.is-narrow .owe-ta { font-size: 15px; }
+/* Neutral shades, never the "good" green: owing money is not good news. */
+.owe-t1 { background: var(--ink3); color: var(--bg); }
+.owe-t2 { background: color-mix(in srgb, var(--ink3) 42%, var(--bg)); color: var(--ink); }
+.owe-strip {
+  display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 14px;
+  background: var(--card); color: var(--ink); box-shadow: inset 4px 0 0 var(--axis);
+}
+.owe-strip .owe-tn { flex: 1 1 auto; }
+.owe-strip .owe-tn small { display: block; font-size: 11px; font-weight: 700; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; }
+.owe-strip .owe-ta { font-size: 19px; flex: none; }
+.owe-strip.is-soon { background: color-mix(in srgb, var(--warn) 16%, var(--bg)); box-shadow: inset 4px 0 0 var(--warn); }
+.owe-strip.is-soon .owe-tn small { color: var(--warn); }
+.owe-strip.is-late { background: var(--bad-soft); box-shadow: inset 4px 0 0 var(--bad); }
+.owe-strip.is-late .owe-tn small { color: var(--bad); }
+.owe-scale { font-size: 11px; font-weight: 600; color: var(--ink2); margin: -6px 4px 2px !important; line-height: 1.4; }
+
+.owe-group { padding: 16px 16px 6px; }
+.owe-ghead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.owe-ghead .owe-lab { flex: 1 1 auto; min-width: 0; }
+.owe-ghint { font-size: 11px; font-weight: 700; color: var(--ink2); white-space: nowrap; }
+
+.owe-debt { padding: 13px 0 12px; border-top: 1px solid var(--card-line); }
+.owe-ghead + .owe-debt { border-top: 0; }
+.owe-dtop { display: flex; align-items: baseline; gap: 10px; }
+.owe-dn { flex: 1 1 auto; min-width: 0; font-size: 14.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.owe-dn small { font-size: 11.5px; font-weight: 700; color: var(--ink2); margin-left: 5px; }
+.owe-da { font-size: 16px; font-weight: 900; letter-spacing: -.025em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.owe-track { height: 5px; border-radius: 999px; background: var(--track); margin: 9px 0 7px; overflow: hidden; }
+.owe-track i { display: block; height: 100%; background: var(--good); border-radius: 999px; }
+.owe-track.is-unknown { background: none; height: 0; border-top: 2px dashed var(--track); border-radius: 0; margin: 11px 0 8px; }
+.owe-dsub { display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 700; color: var(--ink2); }
+.owe-dsub span { flex: 1 1 auto; min-width: 0; }
+.owe-pill {
+  font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 999px;
+  background: var(--track); color: var(--ink2); white-space: nowrap;
+}
+.owe-debt.is-soon .owe-pill { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.owe-debt.is-soon .owe-dsub span { color: var(--warn); }
+.owe-debt.is-late .owe-pill { background: var(--bad-soft); color: var(--bad); }
+.owe-debt.is-late .owe-dsub span { color: var(--bad); }
+
+.owe-per { font-size: 12px; font-weight: 600; color: var(--ink2); margin: 10px 0 6px !important; line-height: 1.45; }
+.owe-per b { color: var(--ink); font-weight: 900; }
+.owe-cost { padding: 11px 0; border-top: 1px solid var(--card-line); }
+.owe-per + .owe-cost, .owe-lab + .owe-cost { border-top: 0; }
+.owe-ctop { display: flex; align-items: baseline; gap: 8px; }
+.owe-cn { flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; }
+.owe-cv { font-size: 15px; font-weight: 900; letter-spacing: -.02em; white-space: nowrap; }
+.owe-cv.is-na { font-size: 12px; font-weight: 700; color: var(--ink2); }
+.owe-flag {
+  font-size: 10.5px; font-weight: 800; color: var(--bad); background: var(--bad-soft);
+  padding: 2px 7px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; white-space: nowrap;
+}
+.owe-cbar { height: 8px; border-radius: 999px; background: var(--track); margin: 8px 0 5px; overflow: hidden; }
+.owe-cbar i { display: block; height: 100%; background: var(--bad); border-radius: 999px; }
+.owe-cbar.is-unknown { background: none; height: 0; border-top: 2px dashed var(--track); border-radius: 0; margin: 11px 0 7px; }
+.owe-cs { font-size: 11.5px; font-weight: 600; color: var(--ink2); }
+.owe-cfoot {
+  display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid var(--card-line);
+  padding: 11px 0 10px; font-size: 12.5px; font-weight: 700; color: var(--ink2);
+}
+.owe-cfoot b { font-size: 17px; font-weight: 900; letter-spacing: -.02em; color: var(--ink); }
+
+.owe-csum { font-size: 12px; font-weight: 700; color: var(--ink2); margin: 4px 0 4px !important; }
+.owe-csum b { color: var(--ink); font-weight: 900; }
+.owe-done { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--card-line); }
+.owe-csum + .owe-done { border-top: 0; }
+.owe-done svg { flex: none; width: 30px; height: 30px; }
+.owe-dt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.owe-dt b { font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.owe-dt span { font-size: 11.5px; font-weight: 600; color: var(--ink2); }
+.owe-dr { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+.owe-was {
+  font-size: 15px; font-weight: 800; color: var(--ink2); text-decoration: line-through;
+  text-decoration-thickness: 1.5px; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.owe-paid { font-size: 11px; font-weight: 800; color: var(--good); }
+
+button.owe-add {
+  display: block; width: 100%; border: 1px dashed var(--ink2); border-radius: var(--r-md); padding: 13px;
+  margin: 2px 0 0; background: none; color: var(--ink); font: inherit; font-size: 14.5px; font-weight: 800; cursor: pointer;
+}
+button.owe-add:hover { background: var(--card); }
+.owe-add-note { font-size: 11.5px; font-weight: 600; color: var(--ink2); text-align: center; margin: -4px 10px 0 !important; line-height: 1.4; }
 
 /* ---- a note on a row ------------------------------------------------ */
 .note-line { margin-top: 4px; }

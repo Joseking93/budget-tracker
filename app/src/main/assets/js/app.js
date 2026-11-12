@@ -1730,20 +1730,26 @@ function wireAddLender(el) {
 function renderLoanLedger(txns) {
   const box = $('#loan-ledger');
   if (!box) return;
-  const rows = loanLedger(store.loanNotices(), txns, isoDay(new Date()));
+  const today = isoDay(new Date());
+  const rows = loanLedger(store.loanNotices(), txns, today);
   // The balances typed in by hand - plots, a logbook loan - belong in the
   // same list as the lenders' own figures: owed is owed, whoever said it.
   // Settled ones stay out; the panel below shows them on request.
+  const isRealDate = (s) => /^\d{4}-\d{2}-\d{2}/.test(String(s || '')) && Number.isFinite(Date.parse(s));
   const typed = store.payables()
     .map((p) => ({ p, c: computePayable(p, txns) }))
     .filter((r) => r.c.owed > 0.5)
     .map((r) => ({
       lender: r.p.name,
       owed: r.c.owed,
+      paid: r.c.paid,
       // `due` is typed free text ("Target Feb 2027"); only a real date gets a countdown.
       dueDate: r.p.due || null,
-      daysLeft: r.p.due && Number.isFinite(Date.parse(r.p.due))
-        ? Math.round((Date.parse(r.p.due) - Date.parse(isoDay(new Date()))) / 86400000)
+      // Chrome's Date.parse reads "Target Dec 2027" as 1 Dec 2027, so a finite
+      // parse alone is not proof of a date: it must also start like one.
+      dueIsDate: isRealDate(r.p.due),
+      daysLeft: isRealDate(r.p.due)
+        ? Math.round((Date.parse(r.p.due) - Date.parse(today)) / 86400000)
         : null,
       typed: true,
       kind: r.p.kind,
@@ -1756,11 +1762,13 @@ function renderLoanLedger(txns) {
     const phone = Boolean(window.Android && window.Android.readSms);
     box.hidden = !phone;
     box.innerHTML = phone
-      ? `<h2>What your lenders say</h2>
+      ? `<div class="card">
+         <h2>What your lenders say</h2>
          <p class="hint">The app now keeps what KCB, KCB M-PESA and M-Shwari say about your loans -
            what each wants back, by when, and the fee. Messages read before this version were not
            kept, so read the inbox once more to pick them up. Nothing is counted twice.</p>
-         <button class="ghost" type="button" id="btn-loan-reread">Read my messages again</button>`
+         <button class="ghost" type="button" id="btn-loan-reread">Read my messages again</button>
+         </div>`
       : '';
     const again = $('#btn-loan-reread');
     if (again) again.addEventListener('click', () => {
@@ -1770,61 +1778,172 @@ function renderLoanLedger(txns) {
     return;
   }
   box.hidden = false;
+
+  // ---- the sums -------------------------------------------------------------
   const pct = (x) => `${(x * 100).toFixed(x * 100 >= 10 ? 0 : 1)}%`;
+  const days = (n) => (n === 0 ? 'today' : `${n} day${n === 1 ? '' : 's'}`);
   const open = rows.filter((r) => !r.cleared);
-  const owed = open.reduce((s, r) => s + r.owed, 0) + typed.reduce((s, r) => s + r.owed, 0);
-  const count = open.length + typed.length;
-  const soonest = [...open, ...typed]
+  const cleared = rows.filter((r) => r.cleared);
+  const items = [...typed, ...open].sort((x, y) => y.owed - x.owed);
+  const owed = items.reduce((s, r) => s + r.owed, 0);
+  const soonest = items
     .filter((r) => r.daysLeft != null && r.daysLeft >= 0)
     .sort((x, y) => x.daysLeft - y.daysLeft)[0];
+  const repaidOf = (r) => (r.repaidSince > 0 ? r.repaidSince : r.stated || 0);
+  const clearedRepaid = cleared.reduce((s, r) => s + repaidOf(r), 0);
+  const clearedFees = cleared.reduce((s, r) => s + ((r.price && r.price.fee) || 0), 0);
+  const tone = (r) =>
+    r.daysLeft != null && r.daysLeft < 0 ? ' is-late' : r === soonest ? ' is-soon' : '';
+  // "Target Dec 2027" reads as "by Dec 2027" on a tile; a real date is a due date.
+  const dueWords = (r) => {
+    if (!r.dueDate) return '';
+    if (r.typed && !r.dueIsDate) return String(r.dueDate).replace(/^target\s+/i, 'by ');
+    return `due ${shortDate(r.dueDate)}`;
+  };
+  const dayWords = (r) =>
+    r.daysLeft == null ? '' : r.daysLeft < 0 ? `${days(-r.daysLeft)} late` : days(r.daysLeft);
+
+  // ---- the tiles: big blocks for what dominates, strips for the rest ---------
+  const share = (r) => (owed > 0 ? r.owed / owed : 0);
+  const share1 = (r) => `${(share(r) * 100).toFixed(1)}%`;
+  const big = items.filter((r, i) => i === 0 || (share(r) >= 0.15 && i < 3));
+  const small = items.filter((r) => !big.includes(r));
+  const shownStrips = small.length > 3 ? small.slice(0, 2) : small;
+  const rest = small.slice(shownStrips.length);
+  const bigSum = big.reduce((s, r) => s + r.owed, 0);
+  const tile = (r, i) => {
+    const w = bigSum > 0 ? r.owed / bigSum : 1;
+    const due = dueWords(r);
+    return `<div class="owe-tile owe-t${(i % 2) + 1}${w < 0.3 ? ' is-narrow' : ''}" style="flex-basis:${(w * 100).toFixed(2)}%">
+      <span class="owe-tn">${escapeHtml(r.lender)}</span>
+      <span><span class="owe-tp">${share1(r)}</span><span class="owe-ta">${viz.fmt(r.owed)}</span>${
+        due ? `<span class="owe-ts">${escapeHtml(due)}</span>` : ''
+      }</span>
+    </div>`;
+  };
+  const strip = (r) => {
+    const bits = [share1(r), [dueWords(r), dayWords(r)].filter(Boolean).join(', ')].filter(Boolean);
+    return `<div class="owe-strip${tone(r)}">
+      <span class="owe-tn">+ ${escapeHtml(r.lender)}<small>${escapeHtml(bits.join(' · '))}</small></span>
+      <span class="owe-ta">${viz.fmt(r.owed)}</span>
+    </div>`;
+  };
+  const restSum = rest.reduce((s, r) => s + r.owed, 0);
+  const tiny = shownStrips.filter((r) => share(r) < 0.03);
+  const scaleNote = !tiny.length
+    ? ''
+    : tiny.length === 1
+      ? `The ${escapeHtml(tiny[0].lender)} strip is drawn bigger than its ${share1(tiny[0])} so it stays visible.`
+      : `The ${tiny.map((r) => escapeHtml(r.lender)).join(' and ')} strips are drawn bigger than their share so they stay visible.`;
+
+  // ---- open, biggest first -------------------------------------------------
+  const openRow = (r) => {
+    let bar = '<div class="owe-track is-unknown"></div>';
+    let sub;
+    let note = '';
+    if (r.typed) {
+      const whole = r.paid + r.owed;
+      if (r.kind === 'fixed' && whole > 0)
+        bar = `<div class="owe-track"><i style="width:${((r.paid / whole) * 100).toFixed(1)}%"></i></div>`;
+      sub = [
+        r.dueIsDate ? `Due ${shortDate(r.dueDate)}` : '',
+        `${viz.fmt(r.paid)} paid so far`,
+        r.kind === 'fixed' ? 'paying down' : 'revolving',
+      ].filter(Boolean).join(' · ');
+    } else {
+      if (r.stated > 0 && r.repaidSince > 0)
+        bar = `<div class="owe-track"><i style="width:${Math.min(100, (r.repaidSince / r.stated) * 100).toFixed(1)}%"></i></div>`;
+      if (r.statedAt) note = `stated ${shortDate(r.statedAt)}`;
+      sub = [
+        r.dueDate ? `Due ${shortDate(r.dueDate)}` : '',
+        r.repaidSince > 0 ? `${viz.fmt(r.repaidSince)} repaid since` : '',
+        "from the lender's message",
+      ].filter(Boolean).join(' · ');
+    }
+    const pill = r.daysLeft != null ? dayWords(r) : r.typed && r.dueDate ? dueWords(r) : '';
+    return `<div class="owe-debt${tone(r)}">
+      <div class="owe-dtop"><span class="owe-dn">${escapeHtml(r.lender)}${note ? `<small>${escapeHtml(note)}</small>` : ''}</span><span class="owe-da">${viz.fmt(r.owed)}</span></div>
+      ${bar}
+      <div class="owe-dsub"><span>${escapeHtml(sub)}</span>${pill ? `<b class="owe-pill">${escapeHtml(pill)}</b>` : ''}</div>
+    </div>`;
+  };
+
+  // ---- what borrowing costs ------------------------------------------------
+  const priced = rows
+    .filter((r) => r.price && r.price.monthly != null)
+    .sort((x, y) => y.price.monthly - x.price.monthly);
+  const unpriced = rows.filter((r) => !priced.includes(r));
+  const dearest = priced[0];
+  const costRow = (r) => {
+    const p = r.price;
+    return `<div class="owe-cost">
+      <div class="owe-ctop"><span class="owe-cn">${escapeHtml(r.lender)}${
+        r === dearest ? '<span class="owe-flag">most expensive</span>' : ''
+      }</span><span class="owe-cv">${pct(p.monthly)} a month</span></div>
+      <div class="owe-cbar"><i style="width:${dearest.price.monthly > 0 ? Math.max(2, (p.monthly / dearest.price.monthly) * 100).toFixed(1) : 0}%"></i></div>
+      <div class="owe-cs">${viz.fmt(p.fee)} on ${viz.fmt(p.on)}${p.termDays ? ` for ${p.termDays} days` : ''}</div>
+    </div>`;
+  };
+  const noCostRow = (r) => `<div class="owe-cost">
+      <div class="owe-ctop"><span class="owe-cn">${escapeHtml(r.lender)}</span><span class="owe-cv is-na">fee not stated</span></div>
+      <div class="owe-cbar is-unknown"></div>
+    </div>`;
+
+  // ---- cleared -------------------------------------------------------------
+  const check = `<svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="14" fill="var(--good)" fill-opacity=".16"/><path d="M9.5 15.5l3.8 3.7 7.4-8" fill="none" stroke="var(--good)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const doneRow = (r) => `<div class="owe-done">${check}
+      <span class="owe-dt"><b>${escapeHtml(r.lender)}</b><span>Paid off ${shortDate(r.clearedAt)} · ${
+        r.price && r.price.fee > 0 ? `fee cost ${viz.fmt(r.price.fee)}` : 'fee not stated'
+      }</span></span>
+      <span class="owe-dr">${r.stated > 0 || r.repaidSince > 0 ? `<span class="owe-was">${viz.fmt(r.stated > 0 ? r.stated : r.repaidSince)}</span>` : ''}<span class="owe-paid">fully paid</span></span>
+    </div>`;
+
   box.innerHTML = `
-    <h2>Everything you owe</h2>
-    <p class="owed-big">${viz.fmt(owed)}</p>
-    <p class="hint">${count ? `Across ${count} item${count === 1 ? '' : 's'}` : 'Nothing open'}${
-      soonest ? ` \u00b7 next due: ${escapeHtml(soonest.lender)} ${soonest.daysLeft === 0 ? 'today' : `in ${soonest.daysLeft} day${soonest.daysLeft === 1 ? '' : 's'}`}` : ''
-    }. Lenders' figures come from their own messages; plots and other balances are the ones you typed in below.</p>
-    ${typed
-      .map((r) => `<div class="loan-row">
-        <div class="loan-head"><b>${escapeHtml(r.lender)}</b><span class="loan-owed">${viz.fmt(r.owed)}</span></div>
-        <div class="loan-sub">${r.kind === 'fixed' ? 'Paying down' : 'Revolving'}${
-          r.dueDate ? ` \u00b7 ${escapeHtml(prettyDue(r.dueDate))}` : ''
-        }${r.daysLeft != null ? (r.daysLeft < 0 ? ' \u00b7 overdue' : ` \u00b7 ${r.daysLeft} day${r.daysLeft === 1 ? '' : 's'}`) : ''}</div>
-      </div>`)
-      .join('')}
-    ${rows
-      .map((r) => {
-        const p = r.price;
-        const dear = p && p.monthly != null && p.monthly >= 0.1;
-        const when = r.dueDate
-          ? r.daysLeft == null ? shortDate(r.dueDate)
-            : r.daysLeft < 0 ? `was due ${shortDate(r.dueDate)}`
-              : r.daysLeft === 0 ? 'due today'
-                : `due ${shortDate(r.dueDate)} \u00b7 ${r.daysLeft} day${r.daysLeft === 1 ? '' : 's'}`
-          : '';
-        return `<div class="loan-row${r.cleared ? ' cleared' : ''}${dear ? ' dear' : ''}">
-          <div class="loan-head">
-            <b>${escapeHtml(r.lender)}</b>
-            <span class="loan-owed">${r.cleared ? 'cleared' : viz.fmt(r.owed)}</span>
-          </div>
-          <div class="loan-sub">${
-            r.cleared
-              ? `Said fully paid${r.clearedAt ? ` on ${shortDate(r.clearedAt)}` : ''}.`
-              : [
-                  r.stated != null ? `Wanted ${viz.fmt(r.stated)} as of ${shortDate(r.statedAt)}` : '',
-                  r.repaidSince > 0 ? `${viz.fmt(r.repaidSince)} repaid since` : '',
-                  when,
-                ].filter(Boolean).join(' \u00b7 ')
-          }</div>
-          ${p
-            ? `<div class="loan-price">Fee ${viz.fmt(p.fee)} on ${viz.fmt(p.on)} = <b>${pct(p.rate)}</b>${
-                p.termDays ? ` for ${p.termDays} days` : ''
-              }${p.monthly != null ? ` \u2248 <b>${pct(p.monthly)} a month</b>` : ''}${
-                dear ? ' \u2014 expensive' : ''
-              }</div>`
-            : ''}
-        </div>`;
-      })
-      .join('')}`;
+    <div class="owe-hero">
+      <p class="owe-lab">Still to pay</p>
+      <p class="owe-big">${viz.fmt(owed)}</p>
+      <p class="owe-sub">${
+        items.length
+          ? `${items.length} item${items.length === 1 ? '' : 's'}${
+              soonest ? ` · next due <em>${escapeHtml(soonest.lender)} ${soonest.daysLeft === 0 ? 'today' : `in ${days(soonest.daysLeft)}`}</em>` : ''
+            }`
+          : 'Nothing open'
+      }</p>
+    </div>
+    ${items.length ? `<div class="owe-tiles" role="img" aria-label="Tiles sized by amount owed">
+      <div class="owe-top">${big.map(tile).join('')}</div>
+      ${shownStrips.map(strip).join('')}
+      ${rest.length ? `<div class="owe-strip"><span class="owe-tn">+ ${rest.length} more<small>${pct(restSum / owed)}</small></span><span class="owe-ta">${viz.fmt(restSum)}</span></div>` : ''}
+    </div>
+    ${scaleNote ? `<p class="owe-scale">${scaleNote}</p>` : ''}
+    <section class="card owe-group">
+      <div class="owe-ghead"><p class="owe-lab">Open, biggest first</p><span class="owe-ghint">paid / owed</span></div>
+      ${items.map(openRow).join('')}
+    </section>` : ''}
+    ${rows.length ? `<section class="card owe-group">
+      <p class="owe-lab">What borrowing costs you</p>
+      ${dearest ? `<p class="owe-per">For every <b>1,000</b> borrowed for a month, ${escapeHtml(dearest.lender)} charges you about <b>${viz.fmt(Math.round(dearest.price.monthly * 1000))}</b>.</p>` : ''}
+      ${priced.map(costRow).join('')}${unpriced.map(noCostRow).join('')}
+      <div class="owe-cfoot"><span>Fees paid, last 60 days</span><b>${viz.fmt(clearedFees)}</b></div>
+    </section>` : ''}
+    ${cleared.length ? `<section class="card owe-group">
+      <p class="owe-lab">Cleared, last 60 days</p>
+      <p class="owe-csum"><b>${cleared.length} loan${cleared.length === 1 ? '' : 's'} cleared</b> · ${viz.fmt(clearedRepaid)} repaid · ${viz.fmt(clearedFees)} in fees</p>
+      ${cleared.map(doneRow).join('')}
+    </section>` : ''}
+    <button class="owe-add" type="button" id="btn-owe-track">+ Track a debt</button>
+    <p class="owe-add-note">Plots, and anything a lender doesn't message you about, are typed in once.</p>`;
+
+  // There is one place debts are added - the balances card below, with its
+  // "Track this debt" offers for lenders seen in the statements. The button
+  // takes you there rather than growing a second form.
+  $('#btn-owe-track').addEventListener('click', () => {
+    const card = $('#debts');
+    if (!card) return;
+    (card.closest('.card') || card).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const offer = card.querySelector('button[data-add-lender]');
+    if (offer) offer.focus({ preventScroll: true });
+  });
 }
 
 function renderDebts(txns) {
@@ -1871,8 +1990,9 @@ function renderDebts(txns) {
 
   const groups = new Map();
   for (const r of shown) {
-    if (!groups.has(r.p.group)) groups.set(r.p.group, []);
-    groups.get(r.p.group).push(r);
+    const g = r.p.group || 'Other';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(r);
   }
 
   el.innerHTML = `
