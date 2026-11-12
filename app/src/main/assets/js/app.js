@@ -63,6 +63,8 @@ const state = {
   // How many rows of the transaction list are on screen. Everything is still
   // there - this is what gets built into the page.
   txnLimit: 150,
+  // The Categories view as tiles rather than rows.
+  catGrid: false,
 };
 
 // Categories are derived on read, never baked into the stored transaction — so
@@ -315,6 +317,7 @@ function render() {
   renderMonthly(all);
   renderRefunds(all);
   renderBudget(all);
+  renderCatSpend(all);
   renderTrack(all);
   renderRecurring(all);
   renderBalance(all);
@@ -460,27 +463,11 @@ function render() {
       render();
     });
 
-  viz.renderTable(
-    $('#table-txns'),
-    rows.slice(0, state.txnLimit),
-    (id, cat) => {
-      // A pass-through or an internal transfer is true of this payment only — making
-      // it a rule for the sender would misfile everything they send you afterwards.
-      const oneOff = ONE_OFF_CATEGORIES.has(cat);
-      const { applied, name } = store.setCategory(id, cat, !oneOff, personName);
-      render();
-      renderNameRules();
-      toast(
-        name
-          ? `“${name}” → ${cat}. ${applied} transaction${applied === 1 ? '' : 's'} follow, past and future.`
-          : oneOff
-            ? `${cat} — this transaction only, no rule made.`
-            : `Recategorised.`
-      );
-    },
-    state.sort,
-    (key) => {
-      // Same column toggles direction; a new column starts descending, which is
+  const looks = categoryLooks(all);
+  viz.renderTable($('#table-txns'), rows.slice(0, state.txnLimit), {
+    sort: state.sort,
+    onSort: (key) => {
+      // Same key toggles direction; a new key starts descending, which is
       // what you want for amounts and dates alike.
       state.sort =
         state.sort.key === key
@@ -489,9 +476,8 @@ function render() {
       state.txnLimit = 150;
       render();
     },
-    all.length,
-    (id) => openSplitEditor(all.find((t) => t.id === id)),
-    {
+    totalBeforeFilters: all.length,
+    more: {
       shown: Math.min(state.txnLimit, rows.length),
       total: rows.length,
       onMore: () => {
@@ -499,11 +485,256 @@ function render() {
         render();
       },
     },
-    (id, text) => {
-      store.setNote(id, text);
-      render();
-    },
+    onOpen: (id) => openTxnSheet(id),
+    discOf: (c) => looks.disc(c),
+    hueOf: (c) => looks.hue(c),
+    dateLabel: dayLabel,
+    shortDate,
+  });
+}
+
+/**
+ * Set one transaction's category - the only way the list and its sheet do it.
+ *
+ * A pass-through or an internal transfer is true of this payment only; making
+ * it a rule for the sender would misfile everything they send you afterwards.
+ * Anything else becomes a name rule, so the person's other rows follow.
+ */
+function recategorise(id, cat) {
+  const oneOff = ONE_OFF_CATEGORIES.has(cat);
+  const { applied, name } = store.setCategory(id, cat, !oneOff, personName);
+  render();
+  renderNameRules();
+  toast(
+    name
+      ? `“${name}” → ${cat}. ${applied} transaction${applied === 1 ? '' : 's'} follow, past and future.`
+      : oneOff
+        ? `${cat} — this transaction only, no rule made.`
+        : `Recategorised.`
   );
+}
+
+/** "Today", "Yesterday", or "Tuesday 10 Nov" - a day header in the list. */
+function dayLabel(day) {
+  if (!day) return 'No date';
+  const today = isoDay(new Date());
+  if (day === today) return 'Today';
+  if (day === shiftDay(today, -1)) return 'Yesterday';
+  const weekday = new Date(`${day}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long' });
+  return `${weekday} ${shortDate(`${day}T12:00:00`)}`;
+}
+
+/*
+ * What a category looks like, wherever it is drawn: its disc and its hue.
+ *
+ * The glyphs are resolved over this month's categories biggest first - the
+ * order the home ring resolves them in, so a category wears the same picture
+ * on the ring and in the list - and then every other category after them.
+ * The hue is the ring's slot where the category has one. Slots are only READ
+ * here: chartSlots() writes, and asking it about thirty categories would
+ * re-deal the ring's colours. A category with no slot gets one from its name,
+ * so it is at least the same colour every time.
+ */
+let looksCache = { key: '', looks: null };
+
+function categoryLooks(all) {
+  const key = `${store.revision()}:${all.length}:${document.documentElement.dataset.theme || ''}`;
+  if (looksCache.key === key && looksCache.looks) return looksCache.looks;
+  const month = monthResolver(all)({ date: `${isoDay(new Date())}T12:00:00` });
+  const monthOf = monthResolver(all);
+  const ranked = viz.byCategory(all.filter((t) => monthOf(t) === month)).map((r) => r.category);
+  const glyphs = glyphMap([...ranked, ...Object.keys(CATEGORIES)]);
+  const slots = store.getState().catSlots || {};
+  const hashSlot = (c) => [...String(c)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % 8;
+  const hue = (c) => viz.seriesColour(slots[c] ?? hashSlot(c));
+  const disc = (c, cls = '') =>
+    `<span class="cdisc${cls ? ` ${cls}` : ''}" style="--hue:${hue(c)}" aria-hidden="true">${emojiOf(
+      glyphs[c] || glyphFor(c)
+    )}</span>`;
+  const looks = { hue, disc, glyphs };
+  looksCache = { key, looks };
+  return looks;
+}
+
+/* ---- One transaction, in a sheet ---------------------------------------- */
+//
+// Tapping a row lifts everything about that one payment: what it was, when,
+// from which account, the amount large, the six categories it most likely
+// belongs to as tiles, the note, and Split. Changing the category goes
+// through recategorise(), the same path the old row dropdown used, so name
+// rules and one-off categories behave exactly as they did.
+
+/** The six categories a payment most likely belongs in, commonest first. */
+function likelyCategories(txn) {
+  const counts = new Map();
+  for (const t of decorate(visible())) {
+    if (t.direction !== txn.direction || !t.category || t.category === 'Uncategorised') continue;
+    counts.set(t.category, (counts.get(t.category) || 0) + 1);
+  }
+  const known = new Set(Object.keys(CATEGORIES));
+  const used = [...counts.entries()]
+    .filter(([c]) => known.has(c))
+    .sort((a, b) => b[1] - a[1])
+    .map(([c]) => c);
+  // A thin history still gets six tiles: the registry's own order fills in,
+  // keeping to the categories that make sense for money going this way.
+  const fill = Object.keys(CATEGORIES).filter((c) => {
+    if (c === 'Uncategorised') return false;
+    const cls = classOf(c);
+    return txn.direction === 'In' ? cls === CLASSES.INCOME : cls === CLASSES.SPENDING;
+  });
+  const six = [...new Set([...used, ...fill])].slice(0, 6);
+  // The one it is filed under now is always on show, so it can be seen as such.
+  const cur = txn.category;
+  if (cur && cur !== 'Uncategorised' && !txn.isSplit && !six.includes(cur)) six[5] = cur;
+  return six;
+}
+
+/** Slide a sheet up from the bottom. Frames worked out here, with a timeout behind them. */
+function slideUp(el) {
+  let frames = 0;
+  let done = false;
+  let t0 = null;
+  const finish = () => {
+    done = true;
+    el.style.transform = '';
+  };
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return finish();
+  el.style.transform = 'translateY(100%)';
+  const step = (now) => {
+    if (done) return;
+    frames++;
+    if (t0 === null) t0 = now;
+    const p = Math.min(1, (now - t0) / 240);
+    const e = 1 - Math.pow(1 - p, 3);
+    el.style.transform = `translateY(${((1 - e) * 100).toFixed(2)}%)`;
+    if (p < 1) requestAnimationFrame(step);
+    else finish();
+  };
+  requestAnimationFrame(step);
+  // A pane that is not painting never calls back; then there is simply no slide.
+  setTimeout(() => {
+    if (!frames) finish();
+  }, 300);
+}
+
+function openTxnSheet(id) {
+  const find = () => decorate(visible()).find((t) => t.id === id);
+  let txn = find();
+  if (!txn) return;
+  document.querySelectorAll('.txsheet').forEach((o) => o.remove());
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay txsheet';
+  let noteWas = txn.note || '';
+
+  const saveNote = () => {
+    const input = overlay.querySelector('#txs-note');
+    if (!input) return;
+    const text = input.value.trim();
+    if (text === noteWas) return;
+    store.setNote(id, text);
+    noteWas = text;
+    render();
+  };
+  function onEsc(e) {
+    if (e.key === 'Escape' && $('#catpick').hidden) close();
+  }
+  const close = () => {
+    saveNote();
+    overlay.remove();
+    document.removeEventListener('keydown', onEsc);
+  };
+
+  const draw = () => {
+    const out = txn.direction !== 'In';
+    const looks = categoryLooks(decorate(visible()));
+    const acct = ACCOUNT_LABELS[txn.accountSource || 'mpesa'] || txn.accountSource || 'M-PESA';
+    const time = viz.timeOf(txn.date);
+    const when = [dayLabel(viz.dayOf(txn.date)), time, acct].filter(Boolean).join(' · ');
+    const tiles = likelyCategories(txn);
+    const tile = (c) => `<button type="button" class="txs-tile${!txn.isSplit && c === txn.category ? ' on' : ''}"
+        data-cat="${escapeHtml(c)}" aria-pressed="${!txn.isSplit && c === txn.category}">
+        ${looks.disc(c)}<b>${escapeHtml(c)}</b></button>`;
+    const GO = `<svg width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg>`;
+    overlay.innerHTML = `
+      <div class="txs" role="dialog" aria-modal="true" aria-label="${escapeHtml(txn.counterparty || 'Transaction')}">
+        <div class="txs-grab" aria-hidden="true"></div>
+        <div class="txs-top">
+          ${looks.disc(txn.category || 'Uncategorised')}
+          <span class="txs-who">
+            <span class="txs-name">${escapeHtml(txn.counterparty || '—')}</span>
+            <span class="txs-when">${escapeHtml(when)}</span>
+          </span>
+        </div>
+        <p class="txs-amt ${out ? 'out' : 'in'}">${out ? '−' : '+'}${viz.fmt(txn.amount)}</p>
+        <p class="txs-sub">${escapeHtml([txn.type, txn.receipt].filter(Boolean).join(' · '))}</p>
+        ${
+          txn.isSplit
+            ? `<p class="txs-split">Split: ${txn.splits.map((p) => `${escapeHtml(p.category)} ${viz.fmt(p.amount)}`).join(' · ')}</p>`
+            : ''
+        }
+        <p class="txs-lab">Category</p>
+        <div class="txs-tiles">${tiles.map(tile).join('')}</div>
+        <button type="button" class="txs-more" data-more="1">More…<span>all ${Object.keys(CATEGORIES).length} ${GO}</span></button>
+        <label class="txs-lab" for="txs-note">Note</label>
+        <input id="txs-note" class="txs-note" type="text" maxlength="120" autocomplete="off"
+               placeholder="What was this for?" value="${escapeHtml(txn.note || '')}">
+        <div class="txs-btns">
+          ${out ? '<button type="button" class="txs-split-b" data-split="1">Split</button>' : ''}
+          <button type="button" class="primary" data-cancel-pick="1">Done</button>
+        </div>
+      </div>`;
+
+    overlay.querySelectorAll('button[data-cat]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (!txn.isSplit && b.dataset.cat === txn.category) return;
+        saveNote();
+        recategorise(id, b.dataset.cat);
+        txn = find() || txn;
+        draw();
+      })
+    );
+    overlay.querySelector('[data-more]').addEventListener('click', () => {
+      // The picker works over a <select>; one made here, holding only this
+      // payment's category, has it open on the full registry with a guess.
+      const sel = document.createElement('select');
+      sel.dataset.id = id;
+      sel.add(new Option(txn.category, txn.category));
+      sel.value = txn.category;
+      openCategoryPicker(sel).then((value) => {
+        if (!value || (!txn.isSplit && value === txn.category) || !overlay.isConnected) return;
+        saveNote();
+        recategorise(id, value);
+        txn = find() || txn;
+        draw();
+      });
+    });
+    const note = overlay.querySelector('#txs-note');
+    note.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        note.blur();
+      }
+    });
+    note.addEventListener('blur', saveNote);
+    const split = overlay.querySelector('[data-split]');
+    if (split)
+      split.addEventListener('click', () => {
+        close();
+        openSplitEditor(find());
+      });
+    overlay.querySelector('[data-cancel-pick]').addEventListener('click', close);
+  };
+
+  draw();
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+  document.addEventListener('keydown', onEsc);
+  document.body.appendChild(overlay);
+  slideUp(overlay.querySelector('.txs'));
 }
 
 // Split one transaction across categories — one movement, several intents (one send
@@ -954,23 +1185,80 @@ function renderBudget(all) {
   );
   setBadge('#budget-badge', `${viz.fmt(spent)} of ${viz.fmt(budgeted)}`, spent > budgeted);
 
+  // Where the month has got to, so "left" can be read as so much a day. Only
+  // the month you are living in has days left; a closed one has none and a
+  // future one has not started.
+  const todayIso = isoDay(new Date());
+  const { from, to } = cycleBounds(all, cycleStart, todayIso);
+  const daysLeft =
+    todayIso >= from && todayIso <= to ? Math.round((Date.parse(to) - Date.parse(todayIso)) / 86400000) + 1 : null;
+  const when =
+    daysLeft != null
+      ? `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`
+      : todayIso > to
+        ? 'month closed'
+        : `starts ${shortDate(from)}`;
+
+  const looks = categoryLooks(all);
+  const glyphs = glyphMap(report.map((r) => r.label));
+  const lineDisc = (r) => {
+    const cat = r.categories[0];
+    return `<span class="cdisc" style="--hue:${cat ? looks.hue(cat) : 'var(--tint)'}" aria-hidden="true">${emojiOf(
+      glyphs[r.label] || glyphFor(r.label)
+    )}</span>`;
+  };
+  // Tint while there is room, warn from 80%, bad once it is over.
+  const barState = (amount, used) => (amount <= 0 ? '' : used > amount ? 'bad' : used >= amount * 0.8 ? 'warn' : '');
+  const bar = (amount, used, extra = '') => {
+    const pct = amount > 0 ? Math.min(100, (used / amount) * 100) : 0;
+    return `<div class="bl-bar ${barState(amount, used)} ${extra}"><i style="width:${pct.toFixed(1)}%"></i></div>`;
+  };
+  const chips = (cats) =>
+    cats
+      .map(
+        (c) =>
+          `<span class="cat-chip" data-drill-cat="${escapeHtml(c)}" role="button" tabindex="0" title="Show ${escapeHtml(c)} transactions this month">${escapeHtml(c)}</span>`
+      )
+      .join('');
+
+  const line = (r) => {
+    const unset = r.amount <= 0;
+    const rest = r.amount - r.spent;
+    const right = unset
+      ? `<span>no budget set</span>`
+      : rest < 0
+        ? `<span class="bl-over">${viz.fmt(-rest)} over</span>`
+        : rest === 0
+          ? `<span>all used</span>`
+          : `<span>${viz.fmt(rest)} left${daysLeft ? ` · ${viz.fmt(rest / daysLeft)} a day` : ''}</span>`;
+    return `<div class="bl" data-budget-row="${escapeHtml(r.id)}">
+        <div class="bl-top">${lineDisc(r)}
+          <b class="bl-name">${escapeHtml(r.label)}</b>
+          <button type="button" class="bl-amt${unset ? ' unset' : ''}" data-edit="${escapeHtml(r.id)}"
+                  aria-label="Change the budget for ${escapeHtml(r.label)}">${unset ? 'Set' : viz.fmt(r.amount)}</button>
+        </div>
+        ${bar(r.amount, r.spent)}
+        <div class="bl-sub"><span>${viz.fmt(r.spent)} spent${unset ? '' : ` of ${viz.fmt(r.amount)}`}</span>${right}</div>
+        <div class="bl-cats">${
+          r.unmapped
+            ? '<span class="shadow">no category mapped — always 0</span>'
+            : `${chips(r.categories)}<button class="budget-assign" data-assign="${r.id}" title="Count a payment from another month toward this line">＋ pull in a payment</button>`
+        }</div>
+      </div>`;
+  };
+
   $('#budget').innerHTML = `
-    <div class="kpis month-kpis">
-      <div class="kpi lead">
-        <span class="kpi-label">Spent against budget</span>
-        <span class="kpi-value ${spent > budgeted ? 'neg' : ''}">${viz.fmt(spent)}</span>
-        <span class="kpi-note">of ${viz.fmt(budgeted)} budgeted</span>
-      </div>
-      <div class="kpi"><span class="kpi-label">${left >= 0 ? 'Left' : 'Over'}</span><span class="kpi-value ${left < 0 ? 'neg' : 'pos'}">${viz.fmt(Math.abs(left))}</span></div>
-      <div class="kpi"><span class="kpi-label">Outside any budget</span><span class="kpi-value">${viz.fmt(outside)}</span><span class="kpi-note">not covered by a line below</span></div>
-      <div class="kpi">
-        <span class="kpi-label">Pay funding this month</span>
-        <span class="kpi-value ${funded > 0 ? 'pos' : ''}">${viz.fmt(funded)}</span>
-        <span class="kpi-note"><button class="budget-assign" id="assign-pay">${
-          funded > 0 ? 'change which pay' : '＋ assign a pay'
-        }</button></span>
-      </div>
-    </div>
+    <section class="bl-group bl-sum">
+      <p class="bl-when">${escapeHtml(monthLabel(state.month))} · ${escapeHtml(when)}</p>
+      <p class="bl-big ${left < 0 ? 'bad' : ''}">${viz.fmt(Math.abs(left))}<span>${left < 0 ? 'over' : 'left'} of ${viz.fmt(budgeted)}</span></p>
+      ${bar(budgeted, spent, 'thick')}
+      <div class="bl-sub"><span>${viz.fmt(spent)} spent against the lines below</span>${
+        daysLeft && left > 0 ? `<span>${viz.fmt(left / daysLeft)} a day</span>` : ''
+      }</div>
+      <div class="bl-fact"><span>Outside any budget</span><b>${viz.fmt(outside)}</b></div>
+      <div class="bl-fact"><span>Pay funding this month</span><b class="${funded > 0 ? 'good' : ''}">${viz.fmt(funded)}</b>
+        <button class="budget-assign" id="assign-pay">${funded > 0 ? 'change which pay' : '＋ assign a pay'}</button></div>
+    </section>
     ${
       cycleStart
         ? `<p class="hint note">This month runs from payday — <strong>${shortDate(cycleStart)}</strong> onward counts here, not from the 1st. Everything spent after that pay is spending this month's money.</p>`
@@ -984,72 +1272,69 @@ function renderBudget(all) {
         ? `<p class="hint note"><strong>${viz.fmt(spent + outside)}</strong> went out this month: ${viz.fmt(spent)} on the lines below + ${viz.fmt(outside)} no line covers. That total is what the monthly report shows as spent.</p>`
         : ''
     }
-    <table class="mini budget-table">
-      <thead><tr><th>Line</th><th class="num">Budget</th><th class="num">Spent</th><th>Progress</th><th class="num">Left</th></tr></thead>
-      <tbody>${report
-        .map(
-          (r) => `<tr data-budget-row="${escapeHtml(r.id)}">
-        <td>
-          <strong>${escapeHtml(r.label)}</strong>
-          <div class="dim small">${
-            r.unmapped
-              ? '<span class="shadow">no category mapped — always 0</span>'
-              : r.categories
-                  .map(
-                    (c) =>
-                      `<span class="cat-chip" data-drill-cat="${escapeHtml(c)}" role="button" tabindex="0" title="Show ${escapeHtml(c)} transactions this month">${escapeHtml(c)}</span>`
-                  )
-                  .join(' ')
-          }</div>
-          ${
-            r.unmapped
-              ? ''
-              : `<button class="budget-assign" data-assign="${r.id}" title="Count a payment from another month toward this line">＋ pull in a payment</button>`
-          }
-        </td>
-        <td class="num"><input class="budget-input" type="number" min="0" step="500" value="${r.amount}" data-budget="${r.id}" aria-label="Budget for ${escapeHtml(r.label)}"></td>
-        <td class="num ${r.over ? 'neg' : ''}">${viz.fmt(r.spent)}</td>
-        <td class="debt-bar-cell">
-          <div class="meter"><div class="meter-fill" style="width:${Math.min(100, r.pct * 100)}%;${
-            r.over ? 'background:var(--critical)' : ''
-          }"></div></div>
-        </td>
-        <td class="num ${r.left < 0 ? 'neg' : 'dim'}">${r.left < 0 ? '−' : ''}${viz.fmt(Math.abs(r.left))}</td>
-      </tr>`
-        )
-        .join('')}</tbody>
-    </table>
+    <section class="bl-group">${report.map(line).join('')}</section>
     ${
       outsideItems && outsideItems.length
-        ? `<div class="budget-outside">
-             <div class="dim small budget-outside-head">Spending not on any budget line — ${viz.fmt(outside)} total</div>
-             <table class="mini">
-               <tbody>${outsideItems
-                 .map(
-                   (o) => `<tr>
-                     <td><span class="cat-chip" data-drill-cat="${escapeHtml(o.category)}" role="button" tabindex="0" title="Show ${escapeHtml(o.category)} transactions this month">${escapeHtml(o.category)}</span>${
+        ? `<p class="bl-head">Not on any budget line · ${viz.fmt(outside)}</p>
+           <section class="bl-group">${outsideItems
+             .map(
+               (o) => `<div class="bl bl-out">
+                 <div class="bl-top">${looks.disc(o.category)}
+                   <span class="bl-name">${chips([o.category])}${
                      o.category === 'Uncategorised'
-                       ? ' <span class="shadow">— name these in People to place them</span>'
+                       ? '<span class="shadow">name these in People to place them</span>'
                        : !isBuiltInCategory(o.category)
-                         ? ' <span class="shadow">— custom category, add it to a line above</span>'
+                         ? '<span class="shadow">custom category, add it to a line above</span>'
                          : ''
-                   }</td>
-                     <td class="num">${viz.fmt(o.amount)}</td>
-                   </tr>`
-                 )
-                 .join('')}</tbody>
-             </table>
-           </div>`
+                   }</span>
+                   <em>${viz.fmt(o.amount)}</em>
+                 </div>
+               </div>`
+             )
+             .join('')}</section>`
         : ''
     }`;
 
+  // The figure is the control: tapped, it becomes a field in place, and it
+  // saves when you leave it or press Enter. Escape puts it back.
   $('#budget')
-    .querySelectorAll('input[data-budget]')
-    .forEach((i) =>
-      i.addEventListener('change', () => {
-        store.setBudget(i.dataset.budget, i.value);
-        render();
-        toast('Budget updated.');
+    .querySelectorAll('button[data-edit]')
+    .forEach((b) =>
+      b.addEventListener('click', () => {
+        const r = report.find((x) => x.id === b.dataset.edit);
+        if (!r) return;
+        const box = document.createElement('span');
+        box.className = 'bl-edit';
+        box.innerHTML = `<input type="number" inputmode="numeric" min="0" step="500" value="${r.amount || ''}"
+            placeholder="0" aria-label="Budget for ${escapeHtml(r.label)}"><button type="button" class="primary">Save</button>`;
+        const input = box.querySelector('input');
+        let done = false;
+        const finish = (save) => {
+          if (done) return;
+          done = true;
+          const value = Math.max(0, Number(input.value) || 0);
+          if (save && value !== r.amount) {
+            store.setBudget(r.id, value);
+            render();
+            toast('Budget updated.');
+          } else {
+            box.replaceWith(b);
+          }
+        };
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') finish(true);
+          if (e.key === 'Escape') finish(false);
+        });
+        input.addEventListener('blur', () => finish(true));
+        // pointerdown, so the save lands before the input's own blur does.
+        box.querySelector('button').addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          finish(true);
+        });
+        box.querySelector('button').addEventListener('click', () => finish(true));
+        b.replaceWith(box);
+        input.focus();
+        input.select();
       })
     );
 
@@ -2367,6 +2652,71 @@ function wireSettings() {
     renderNameRules();
     toast(`${name} added — their bank rows will be named too.`);
   });
+}
+
+/*
+ * This month by category: one row each, biggest first, with what it came to
+ * and a slim bar for its share of the month - or the same categories as a
+ * grid of tiles, behind the toggle at the top. A tap on either opens the
+ * transactions behind it, for this month, the same way the home ring does.
+ */
+function renderCatSpend(all) {
+  const box = $('#cat-spend');
+  if (!box) return;
+  const month = monthResolver(all)({ date: `${isoDay(new Date())}T12:00:00` });
+  const monthOf = monthResolver(all);
+  const rows = viz.byCategory(all.filter((t) => monthOf(t) === month)).filter((r) => r.total > 0);
+  const total = rows.reduce((a, r) => a + r.total, 0);
+  const looks = categoryLooks(all);
+  const grid = state.catGrid;
+
+  const LIST_I = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+      stroke-linecap="round" aria-hidden="true"><path d="M8.5 6.5h11 M8.5 12h11 M8.5 17.5h11 M4.5 6.5h.01 M4.5 12h.01 M4.5 17.5h.01"/></svg>`;
+  const GRID_I = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"
+      stroke-linejoin="round" aria-hidden="true"><path d="M4.5 4.5h6v6h-6z M13.5 4.5h6v6h-6z M4.5 13.5h6v6h-6z M13.5 13.5h6v6h-6z"/></svg>`;
+
+  const head = `<div class="cs-head">
+      <span class="cs-title">
+        <span class="cs-month">${escapeHtml(month ? monthLabel(month) : 'This month')}</span>
+        <span class="cs-total">${viz.fmt(total)}<small> spent</small></span>
+      </span>
+      <span class="cs-toggle" role="group" aria-label="Show as">
+        <button type="button" class="${grid ? '' : 'on'}" data-cs-view="list" aria-pressed="${!grid}">${LIST_I}<span>List</span></button>
+        <button type="button" class="${grid ? 'on' : ''}" data-cs-view="grid" aria-pressed="${grid}">${GRID_I}<span>Grid</span></button>
+      </span>
+    </div>`;
+
+  const body = !rows.length
+    ? `<p class="empty">Nothing spent this month yet.</p>`
+    : grid
+      ? `<div class="cs-grid">${rows
+          .map(
+            (r) => `<button type="button" class="cs-tile" data-drill-cat="${escapeHtml(r.category)}">
+              ${looks.disc(r.category)}<b>${escapeHtml(r.category)}</b><span>${viz.fmt(r.total)}</span></button>`
+          )
+          .join('')}</div>`
+      : `<div class="cs-list">${rows
+          .map((r) => {
+            const share = total > 0 ? r.total / total : 0;
+            return `<button type="button" class="cs-row" data-drill-cat="${escapeHtml(r.category)}">
+              ${looks.disc(r.category)}
+              <span class="cs-text">
+                <span class="cs-line"><span class="cs-name">${escapeHtml(r.category)}</span><span class="cs-amt">${viz.fmt(r.total)}</span></span>
+                <span class="cs-bar" style="--hue:${looks.hue(r.category)}"><i style="width:${(share * 100).toFixed(1)}%"></i></span>
+                <span class="cs-sub">${Math.round(share * 100)}% · ${r.count} payment${r.count === 1 ? '' : 's'}</span>
+              </span>
+            </button>`;
+          })
+          .join('')}</div>`;
+
+  box.innerHTML = `<section class="card cs-card">${head}${body}</section>`;
+  box.querySelectorAll('[data-cs-view]').forEach((b) =>
+    b.addEventListener('click', () => {
+      state.catGrid = b.dataset.csView === 'grid';
+      renderCatSpend(all);
+    })
+  );
+  wireDrill(box, month || null);
 }
 
 function renderCategories() {
@@ -4429,7 +4779,7 @@ function closeCategoryPicker(value) {
 
 /** Every category dropdown in the app, wherever it lives. */
 const CATEGORY_SELECTS =
-  'select.cat, select.triage-cat, #cat-filter, #bulk-cat, #nr-cat, #pad-cat, select.budget-assign';
+  'select.triage-cat, #cat-filter, #bulk-cat, #nr-cat, #pad-cat, select.budget-assign';
 
 function wireCategoryPicker() {
   const box = $('#catpick');
@@ -4458,7 +4808,9 @@ function wireCategoryPicker() {
     // A tap inside the picker is a choice, not a request to open one. Without
     // this it would look under the overlay, find whatever row happens to sit
     // beneath the list, and open that row's categories instead.
-    if (e.target.closest && e.target.closest('#catpick')) return;
+    // The transaction sheet holds no dropdown of its own; a tap on it is never
+    // meant for the filter that happens to sit under it on the page.
+    if (e.target.closest && e.target.closest('#catpick, .txsheet')) return;
     // The select takes no pointer events, so the click lands on whatever is
     // behind it - its own container. Finding it again means looking inside
     // that container for a category dropdown the click actually landed on.

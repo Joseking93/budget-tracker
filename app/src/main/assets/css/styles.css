@@ -235,8 +235,7 @@ h4 { font-size: 13px; font-weight: 600; }
 .tip { color: var(--tint); }
 
 /* The line you just arrived at, so you do not have to find it again. */
-.just-came-from > td { background: var(--tint-soft); }
-.just-came-from > td:first-child { box-shadow: inset 3px 0 0 var(--tint); }
+.bl.just-came-from { background: var(--tint-soft); }
 
 /* ── The ring ──────────────────────────────────────────────── */
 .ring-card { margin-bottom: 14px; }
@@ -276,7 +275,7 @@ h4 { font-size: 13px; font-weight: 600; }
 /* Untouchable on purpose: see wireCategoryPicker. A finger dragging down the
    list passes straight through these to the scroller, and the click that only
    happens when you did NOT scroll is what opens the picker. */
-select.cat, select.triage-cat, #cat-filter, #bulk-cat, #nr-cat, #pad-cat,
+select.triage-cat, #cat-filter, #bulk-cat, #nr-cat, #pad-cat,
 select.budget-assign { pointer-events: none; }
 
 .catpick { display: flex; flex-direction: column; gap: 9px; max-height: 76vh; }
@@ -431,20 +430,6 @@ button.owe-add {
 button.owe-add:hover { background: var(--card); }
 .owe-add-note { font-size: 11.5px; font-weight: 600; color: var(--ink2); text-align: center; margin: -4px 10px 0 !important; line-height: 1.4; }
 
-/* ---- a note on a row ------------------------------------------------ */
-.note-line { margin-top: 4px; }
-.note-btn {
-  background: none; border: 0; padding: 0; font: inherit; font-size: 12px;
-  color: var(--muted); cursor: pointer; text-align: left; line-height: 1.35;
-}
-.note-line.has .note-btn { color: var(--ink); font-style: italic; }
-.note-line.has .note-btn::before { content: '\201C'; color: var(--muted); }
-.note-line.has .note-btn::after { content: '\201D'; color: var(--muted); }
-.note-in {
-  width: 100%; max-width: 320px; font: inherit; font-size: 13px; padding: 5px 9px;
-  border: 1px solid var(--card-line-strong); border-radius: 8px;
-  background: var(--card); color: var(--ink);
-}
 .cash-given-link { align-self: flex-start; margin: -4px 0 0 2px; font-size: 13px; }
 .cash-acts {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -801,14 +786,6 @@ tr:last-child td { border-bottom: 0; }
 .mini td { padding: 8px 10px; }
 
 /* ── Budgets ─────────────────────────────────────────────────────────────── */
-.budget-input {
-  width: 92px; text-align: right; padding: 5px 8px; font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.budget-table .debt-bar-cell { min-width: 96px; }
-.budget-table .meter { width: 100%; }
-.budget-table td { vertical-align: middle; }
-
 /* Category chips on a budget line — small, inline, tappable. Deliberately NOT
    .drill-chip: that name belongs to the filter breadcrumb, and sharing it made
    these render as full-width banners. */
@@ -831,12 +808,6 @@ tr:last-child td { border-bottom: 0; }
 }
 .budget-assign:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 
-.budget-outside { margin-top: 18px; padding-top: 4px; border-top: 1px solid var(--border); }
-.budget-outside-head {
-  margin: 10px 0 2px; text-transform: uppercase; letter-spacing: .07em; font-weight: 600;
-}
-.budget-outside .mini td { padding-top: 5px; padding-bottom: 5px; }
-
 /* Track panel — the budget shows as a notch across the bar. */
 .budget-notch {
   position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px;
@@ -847,19 +818,6 @@ tr:last-child td { border-bottom: 0; }
 .track-row:hover .bar-label, .track-row:focus .bar-label { color: var(--accent); }
 
 /* ── Split a transaction ─────────────────────────────────────────────────── */
-.cat-cell { display: flex; align-items: center; gap: 5px; }
-.split-open {
-  flex: none; width: 26px; height: 26px; padding: 0; line-height: 1;
-  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2);
-  color: var(--muted); cursor: pointer; font-size: 13px;
-}
-.split-open:hover { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
-.split-tag {
-  border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent);
-  border-radius: 999px; padding: 2px 10px; font-size: 11.5px; cursor: pointer; font-weight: 500;
-}
-.split-tag:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-.cat-split .dim.small { margin-top: 3px; }
 .split-parts { margin: 14px 0 6px; display: flex; flex-direction: column; gap: 8px; }
 .split-part { display: flex; align-items: center; gap: 8px; }
 .split-part .split-cat { flex: 1 1 auto; min-width: 0; }
@@ -1082,28 +1040,17 @@ tr.picked > td { background: var(--accent-soft); }
 .acct-mpesa { color: var(--text-secondary); }
 
 /* ── Sorting & filters ───────────────────────────────────────────────────── */
-th.sortable { cursor: pointer; user-select: none; }
-th.sortable:hover { color: var(--text-primary); }
-th.sortable.active { color: var(--accent); }
-th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0 2px; }
 .filters input[type=search] { flex: 1 1 220px; min-width: 160px; }
 .filters select { font-size: 13px; }
 #filter-count { margin-left: auto; font-variant-numeric: tabular-nums; }
 
-.scroll { max-height: 560px; overflow: auto; margin-top: 10px; border-radius: var(--r-sm); }
-.scroll thead th {
-  position: sticky; top: 0; z-index: 1;
-  background: var(--surface-1);
-  box-shadow: inset 0 -1px 0 var(--border);
-}
 /* Restrained scrollbars — a data page has a lot of them. */
-.scroll::-webkit-scrollbar, .pick-list::-webkit-scrollbar, .modal::-webkit-scrollbar { width: 10px; height: 10px; }
-.scroll::-webkit-scrollbar-thumb, .pick-list::-webkit-scrollbar-thumb, .modal::-webkit-scrollbar-thumb {
+.pick-list::-webkit-scrollbar, .modal::-webkit-scrollbar { width: 10px; height: 10px; }
+.pick-list::-webkit-scrollbar-thumb, .modal::-webkit-scrollbar-thumb {
   background: var(--surface-3); border-radius: 999px; border: 2px solid var(--surface-1);
 }
-.scroll::-webkit-scrollbar-thumb:hover, .pick-list::-webkit-scrollbar-thumb:hover { background: var(--axis); }
-.scroll::-webkit-scrollbar-track { background: transparent; }
+.pick-list::-webkit-scrollbar-thumb:hover { background: var(--axis); }
 
 /* ── Monthly report ──────────────────────────────────────────────────────── */
 .month-pick { display: flex; gap: 9px; align-items: center; margin: 12px 0 15px; flex-wrap: wrap; }
@@ -1125,10 +1072,8 @@ th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2
 .small { font-size: 11px; }
 .nowrap { white-space: nowrap; }
 .in { color: var(--good); }
-.cp { font-weight: 550; }
 .neg { color: var(--critical); }
 .pos { color: var(--good); }
-select.cat { font-size: 12px; padding: 5px 24px 5px 8px; max-width: 180px; }
 .empty { color: var(--muted); font-size: 13px; padding: 14px 0; }
 tr.is-stale { opacity: .55; }
 
@@ -1204,7 +1149,7 @@ tr.is-stale { opacity: .55; }
   /* Every box that can hold a 520px table. One missing name here (#month-report
      was missing) is enough to make the WHOLE PAGE scroll sideways on a phone,
      because the table pushes past the card instead of scrolling inside it. */
-  .scroll, #table-merchants, #recurring, #budget, #refunds, #triage, #track,
+  #table-merchants, #recurring, #refunds, #triage, #track,
   #month-report, #fuliza, #debts, #recon, #basket, #basket-search-out,
   #nr-list, #cat-list { overflow-x: auto; }
   /* .mini is still a table - it is narrow enough and its columns are short. */
@@ -1214,39 +1159,10 @@ tr.is-stale { opacity: .55; }
      many. */
   .loan-table { min-width: 0; }
 
-  /* The transaction list is not. */
-  #table-txns { overflow-x: visible; }
-  .txns, .txns tbody, .txns tr, .txns td { display: block; width: auto; }
-  .txns { min-width: 0; border-collapse: separate; }
-  .txns tr {
-    display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
-    align-items: baseline; padding: 11px 2px 12px;
-    border-bottom: 1px solid var(--card-line);
-  }
-  .txns tr:last-child { border-bottom: 0; }
-  .txns td { padding: 0; border: 0; }
-  .txns td:nth-child(2) { grid-area: 1 / 1; }          /* who it was */
-  .txns td:nth-child(3) { grid-area: 1 / 2; text-align: right; font-size: 15px; }
-  .txns td:nth-child(1) { grid-area: 2 / 1 / 3 / 3; }  /* when */
-  .txns td:nth-child(4) { grid-area: 3 / 1 / 4 / 3; margin-top: 7px; }
-  .txns .cp { font-size: 14.5px; font-weight: 600; line-height: 1.3; }
-  .txns select.cat { max-width: none; width: 100%; }
-  .txns .cat-cell { display: flex; gap: 7px; align-items: center; }
-  .txns .cat-cell select { flex: 1 1 auto; min-width: 0; }
-
-  /* The header becomes a strip of sort buttons rather than column titles. */
-  .txns thead { display: block; }
-  .txns thead tr { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 9px; border-bottom: 1px solid var(--line); }
-  .txns thead th {
-    position: static; box-shadow: none; background: var(--card-3);
-    border-radius: 999px; padding: 6px 11px; font-size: 11.5px; white-space: nowrap;
-  }
-  .txns thead th.active { background: var(--tint-soft); color: var(--tint); }
   .bar-row { grid-template-columns: 100px 1fr 78px; gap: 8px; }
   .bar-label { font-size: 11px; }
   .tick input { width: 20px; height: 20px; }
   .tick { width: 36px; }
-  select.cat { max-width: 140px; }
   .bulk-bar { position: static; }
   .modal { padding: 16px; }
 }
@@ -1263,13 +1179,12 @@ tr.is-stale { opacity: .55; }
   body.printing .viewbar .back, body.printing .rowgroup { display: none !important; }
   .topbar, .intake, #triage-card, .filters, .cat-chip, #drill-chip,
   .namerule-add, .debt-actions, .pick-box, .pay-form, #toast,
-  .budget-assign, .split-open, .debt-remove { display: none !important; }
+  .budget-assign, .debt-remove { display: none !important; }
   body { background: #fff; color: #000; }
   body::before { display: none; }
   main { max-width: none; padding: 0; }
   .card { break-inside: avoid; border: 1px solid #ddd; box-shadow: none; }
   details.card > summary::before { display: none; }
-  .scroll { max-height: none; overflow: visible; }
 }
 
 /* Edit a debt — a stacked form, since it has more than the one field the
@@ -1513,3 +1428,235 @@ tr.is-stale { opacity: .55; }
 :root[data-look="minted"] .ring-total { font-weight: 800; }
 
 @media print { .decal, .home { display: none !important; } }
+
+/* ── A category's disc ───────────────────────────────────────────────────────
+   The same disc the home ring's list uses: the category's own hue at a
+   whisper behind its picture. --hue is set inline from the chart palette;
+   without one the disc falls back to the quiet ink. */
+.cdisc {
+  width: 36px; height: 36px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-size: 16px; line-height: 1;
+  background: color-mix(in srgb, var(--hue, var(--ink2)) 14%, transparent);
+  color: var(--ink2);
+}
+
+/* ── Transactions: rows by day ───────────────────────────────────────────── */
+.txlist { min-width: 0; }
+.tx-sort { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 2px 2px; }
+.tx-sort-lab {
+  font-size: 11.5px; font-weight: 800; color: var(--ink2);
+  text-transform: uppercase; letter-spacing: .04em; margin-right: 2px;
+}
+button.tx-sort-b {
+  display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px;
+  border: 1px solid var(--card-line); border-radius: 999px; background: var(--card); color: var(--ink2);
+  font-size: 12px; font-weight: 700;
+}
+button.tx-sort-b:hover { background: var(--card); color: var(--ink); }
+button.tx-sort-b.on { background: var(--tint-soft); border-color: var(--tint-line); color: var(--tint); }
+.tx-day {
+  display: flex; justify-content: space-between; gap: 10px;
+  margin: 16px 6px 7px; font-size: 12px; font-weight: 800; color: var(--ink2);
+}
+.tx-day span:last-child { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tx-group {
+  background: var(--card); border: 1px solid var(--card-line); border-radius: var(--r-xl);
+  box-shadow: var(--card-shadow); padding: 2px 14px; min-width: 0;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+.tx-sort + .tx-group { margin-top: 12px; }
+button.tx {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0;
+  padding: 11px 0; border: 0; border-top: 1px solid var(--card-line); border-radius: 0;
+  background: none; color: var(--ink); text-align: left; font-weight: inherit;
+}
+button.tx:first-child { border-top: 0; }
+button.tx:hover { background: none; border-color: var(--card-line); }
+button.tx:hover .tx-name { color: var(--tint); }
+button.tx:active { transform: none; }
+.tx-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.tx-name { font-size: 14.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tx-meta {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font-size: 11.5px; font-weight: 600; color: var(--ink2);
+}
+.tx-chip {
+  flex: 0 0 auto; min-width: 0; max-width: 62%; padding: 2px 8px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: color-mix(in srgb, var(--hue, var(--ink2)) 15%, transparent);
+  color: color-mix(in srgb, var(--hue, var(--ink2)) 58%, var(--ink));
+}
+.tx-when { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The note gives way first; the chip keeps its name. */
+.tx-note { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; gap: 3px; }
+.tx-note span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+.tx-note-i { flex: none; color: var(--tint); }
+.tx-amt {
+  flex: none; font-size: 15px; font-weight: 800; letter-spacing: -.02em;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.tx-amt.out, .txs-amt.out { color: var(--bad); }
+.tx-amt.in, .txs-amt.in { color: var(--good); }
+.txlist > .empty { padding: 14px 6px; }
+.more-rows { display: block; width: 100%; margin-top: 12px; }
+
+/* ── One transaction, as a sheet ─────────────────────────────────────────── */
+/* Under the category picker (50), which opens on top of it from "More…". */
+.modal-overlay.txsheet { align-items: flex-end; padding: 0; z-index: 45; }
+.txs {
+  width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto;
+  /* Opaque, as the dialogs are: the page underneath, the card over it. */
+  background-color: var(--bg);
+  background-image: linear-gradient(var(--card), var(--card));
+  border: 1px solid var(--card-line-strong); border-bottom: 0;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  padding: 10px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  box-shadow: var(--shadow-3);
+}
+.txs p { margin: 0; }
+.txs-grab { width: 38px; height: 5px; border-radius: 9px; background: var(--track); margin: 0 auto 14px; }
+.txs-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.txs-who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.txs-name { font-size: 15.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.txs-when { font-size: 12px; font-weight: 700; color: var(--ink2); }
+.txs .txs-amt {
+  margin-top: 12px; font-size: 30px; font-weight: 900; letter-spacing: -.035em;
+  line-height: 1.1; font-variant-numeric: tabular-nums;
+}
+.txs .txs-sub, .txs .txs-split { margin-top: 3px; font-size: 12px; font-weight: 700; color: var(--ink2); }
+.txs .txs-lab {
+  display: block; margin: 16px 0 8px; font-size: 11.5px; font-weight: 800; color: var(--ink2);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.txs-tiles { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+button.txs-tile, button.cs-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0;
+  padding: 13px 4px 11px; border: 2px solid transparent; border-radius: var(--r-lg);
+  background: var(--bg); color: var(--ink); text-align: center; font-weight: inherit;
+}
+button.txs-tile:hover, button.cs-tile:hover { background: var(--bg); border-color: var(--card-line-strong); }
+button.txs-tile.on { border-color: var(--tint); background: var(--tint-soft); }
+.txs-tile .cdisc, .cs-tile .cdisc { width: 46px; height: 46px; font-size: 22px; }
+.txs-tile b, .cs-tile b {
+  max-width: 100%; font-size: 11.5px; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+button.txs-more {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; margin-top: 10px; padding: 13px 14px; border: 0; border-radius: var(--r-md);
+  background: var(--bg); color: var(--ink); font-size: 14px; font-weight: 800;
+}
+button.txs-more:hover { background: var(--bg); color: var(--tint); }
+.txs-more span { display: inline-flex; align-items: center; gap: 7px; color: var(--ink2); font-weight: 700; }
+.txs .txs-note {
+  width: 100%; padding: 12px 13px; border: 1px solid transparent; border-radius: var(--r-md);
+  background: var(--bg); font-size: 14px; font-weight: 600;
+}
+.txs-btns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; margin-top: 16px; }
+.txs-btns button { padding: 13px; border: 0; border-radius: var(--r-md); font-size: 14.5px; font-weight: 800; }
+.txs-btns .txs-split-b { background: var(--track); color: var(--ink); }
+
+/* ── Categories: this month, by category ─────────────────────────────────── */
+.cat-spend:empty { display: none; }
+.cs-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; min-width: 0; }
+.cs-title { display: flex; flex-direction: column; min-width: 0; }
+.cs-month { font-size: 12.5px; font-weight: 700; color: var(--ink2); }
+.cs-total { font-size: 25px; font-weight: 900; letter-spacing: -.03em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.cs-total small { font-size: 13px; font-weight: 700; letter-spacing: 0; color: var(--ink2); }
+.cs-toggle { display: inline-flex; flex: none; gap: 2px; padding: 3px; border-radius: 999px; background: var(--card-3); }
+.cs-toggle button {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px;
+  border: 0; border-radius: 999px; background: none; color: var(--ink2); font-size: 12px; font-weight: 800;
+}
+.cs-toggle button:hover { background: none; color: var(--ink); }
+.cs-toggle button.on { background: var(--bg); color: var(--ink); box-shadow: var(--card-shadow); }
+.cs-list { margin-top: 8px; }
+button.cs-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0;
+  padding: 11px 0; border: 0; border-top: 1px solid var(--card-line); border-radius: 0;
+  background: none; color: var(--ink); text-align: left; font-weight: inherit;
+}
+button.cs-row:first-child { border-top: 0; }
+button.cs-row:hover { background: none; border-color: var(--card-line); }
+button.cs-row:hover .cs-name { color: var(--tint); }
+button.cs-row:active, button.cs-tile:active { transform: none; }
+.cs-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.cs-line { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.cs-name { flex: 1 1 auto; min-width: 0; font-size: 14.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-amt { flex: none; font-size: 15px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.cs-bar { display: block; height: 4px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.cs-bar i { display: block; height: 100%; border-radius: inherit; background: var(--hue, var(--tint)); }
+.cs-sub { font-size: 11.5px; font-weight: 600; color: var(--ink2); }
+.cs-grid { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 12px; }
+.cs-tile span { font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cs-card > .empty { padding-bottom: 2px; }
+
+/* ── Budget: each line a row with its bar ────────────────────────────────── */
+.budget { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.budget p { margin: 0; }
+.view-hint { margin: -4px 4px 0; }
+.bl-group {
+  background: var(--card); border: 1px solid var(--card-line); border-radius: var(--r-xl);
+  box-shadow: var(--card-shadow); padding: 2px 14px; min-width: 0;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+.bl-sum { padding: 14px 16px 2px; }
+.budget .bl-when { font-size: 12.5px; font-weight: 700; color: var(--ink2); }
+.budget .bl-big {
+  margin-top: 2px; font-size: 30px; font-weight: 900; letter-spacing: -.035em;
+  line-height: 1.15; font-variant-numeric: tabular-nums;
+}
+.bl-big span { margin-left: 6px; font-size: 13px; font-weight: 700; letter-spacing: 0; color: var(--ink2); }
+.bl-big.bad { color: var(--bad); }
+.bl-bar { height: 8px; border-radius: 999px; background: var(--track); overflow: hidden; margin: 8px 0 5px; }
+.bl-bar.thick { height: 10px; margin-top: 10px; }
+.bl-bar i { display: block; height: 100%; border-radius: inherit; background: var(--tint); }
+.bl-bar.warn i { background: var(--warn); }
+.bl-bar.bad i { background: var(--bad); }
+.bl-sub {
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 2px 10px; min-width: 0;
+  font-size: 11.5px; font-weight: 700; color: var(--ink2); font-variant-numeric: tabular-nums;
+}
+.bl-over { color: var(--bad); }
+.bl-fact {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 11px 0;
+  border-top: 1px solid var(--card-line); font-size: 13.5px; font-weight: 700;
+}
+.bl-sub + .bl-fact { margin-top: 10px; }
+.bl-fact > span { flex: 1 1 auto; min-width: 0; color: var(--ink2); }
+.bl-fact b { font-weight: 800; font-variant-numeric: tabular-nums; }
+.bl-fact b.good { color: var(--good); }
+.bl-fact .budget-assign { margin-top: 0; }
+.bl { padding: 12px 0; border-top: 1px solid var(--card-line); min-width: 0; }
+.bl:first-child { border-top: 0; }
+.bl-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bl-top .cdisc { width: 30px; height: 30px; font-size: 15px; }
+.bl-name { flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.bl-amt {
+  flex: none; padding: 5px 10px; border: 0; border-radius: var(--r-sm);
+  background: var(--tint-soft); color: var(--ink); font-size: 14px; font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+button.bl-amt:hover { background: var(--tint-soft); color: var(--tint); }
+button.bl-amt.unset { color: var(--tint); }
+.bl-edit { display: flex; align-items: center; gap: 6px; flex: none; }
+.bl-edit input {
+  width: 100px; padding: 5px 8px; border: 2px solid var(--tint); border-radius: var(--r-sm);
+  background: var(--bg); font-size: 14px; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums;
+}
+.bl-edit button { padding: 7px 11px; font-size: 12px; font-weight: 800; }
+.bl-cats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; margin-top: 7px; min-width: 0; }
+.bl-cats .cat-chip, .bl-cats .budget-assign {
+  margin: 0; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 1.6;
+}
+.bl-cats .cat-chip { border-color: transparent; background: var(--card-3); color: var(--ink2); }
+.budget .bl-head {
+  margin: 6px 6px -4px; font-size: 11.5px; font-weight: 800; color: var(--ink2);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.bl-out .bl-name {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px;
+  white-space: normal; font-weight: 600; font-size: 11.5px;
+}
+.bl-out .bl-name .cat-chip { margin: 0; font-size: 12px; font-weight: 700; }
+.bl-out em { flex: none; font-style: normal; font-size: 13.5px; font-weight: 800; font-variant-numeric: tabular-nums; }

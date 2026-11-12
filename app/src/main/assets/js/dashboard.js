@@ -1,8 +1,7 @@
 // Aggregation + chart rendering. Charts are hand-rolled SVG — no chart library, so
 // the app stays dependency-free and works offline.
 
-import { CATEGORIES, CLASSES, classOf, categoryParts } from './rules.js';
-import { ACCOUNT_LABELS } from './import.js';
+import { CLASSES, classOf, categoryParts } from './rules.js';
 
 const KES = new Intl.NumberFormat('en-KE', { maximumFractionDigits: 0 });
 const fmt = (n) => KES.format(Math.round(n));
@@ -334,14 +333,66 @@ export function renderMerchants(el, rows) {
         .join('')}</tbody></table>`;
 }
 
-const COLS = [
+/* ---- The transaction list ---------------------------------------------- */
+//
+// Rows grouped by day, the way every bank app on the phone already reads:
+// the date is said once, with what went out that day beside it, and each row
+// is what / where it went / how much. The category is a chip, not a dropdown
+// on every line - changing it is a tap into the row, which opens the sheet
+// (app.js, openTxnSheet), so the list scans instead of being thirty controls.
+
+const SORTS = [
   { key: 'date', label: 'Date' },
-  { key: 'counterparty', label: 'Details' },
-  { key: 'amount', label: 'Amount', cls: 'num' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'counterparty', label: 'Name' },
   { key: 'category', label: 'Category' },
 ];
 
-export function renderTable(el, txns, onEdit, sort, onSort, totalBeforeFilters = null, onSplit = null, more = null, onNote = null) {
+const SORT_ARROW = (dir) =>
+  `<svg class="tx-sort-dir" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor"
+        stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${
+          dir === 'asc' ? 'M2 6.5 5 3.5 8 6.5' : 'M2 3.5 5 6.5 8 3.5'
+        }"/></svg>`;
+
+const NOTE_ICON =
+  `<svg class="tx-note-i" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+  `<path d="M4.5 5.5h15v10h-8l-4.5 3.5v-3.5h-2.5z M8.5 9.5h7 M8.5 12.5h4.5"/></svg>`;
+
+/** The calendar day a transaction fell on, on this phone's clock - the dates are stored in UTC. */
+export function dayOf(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** "12:40", or nothing when the statement only gave a date. */
+export function timeOf(iso) {
+  // A statement row carries only a date, stored as midnight.
+  if (!iso || String(iso).length < 16 || /T00:00(:00(\.0+)?)?Z?$/.test(iso)) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  if (d.getHours() === 0 && d.getMinutes() === 0) return '';
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {object[]} txns  decorated, sorted, already cut to the page limit
+ * @param {object} o
+ * @param {{key: string, dir: string}} o.sort
+ * @param {(key: string) => void} o.onSort
+ * @param {number|null} o.totalBeforeFilters  0 means there is no data at all
+ * @param {{shown: number, total: number, onMore: Function}|null} o.more
+ * @param {(id: string) => void} o.onOpen  a row was tapped
+ * @param {(category: string) => string} o.discOf  the category's disc, as HTML
+ * @param {(category: string) => string} o.hueOf  the category's colour
+ * @param {(day: string) => string} o.dateLabel  how a day is named in its header
+ * @param {(iso: string) => string} o.shortDate  the date on a row when not grouped by day
+ */
+export function renderTable(el, txns, o) {
+  const { sort, onSort, totalBeforeFilters = null, more = null, onOpen, discOf, hueOf, dateLabel, shortDate } = o;
   if (!txns.length) {
     // An empty app and an over-narrow filter are different problems; telling someone
     // with no data to "clear the filters" sends them looking for a filter that isn't set.
@@ -351,78 +402,66 @@ export function renderTable(el, txns, onEdit, sort, onSort, totalBeforeFilters =
         : `<p class="empty">No transactions match these filters.</p>`;
     return;
   }
-  const opts = Object.keys(CATEGORIES);
-  const head = COLS.map((c) => {
-    const active = sort.key === c.key;
-    // aria-sort so the sort state is exposed to screen readers, not just the arrow.
-    const aria = active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none';
-    const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
-    return `<th class="${c.cls || ''} sortable${active ? ' active' : ''}"
-                aria-sort="${aria}" data-sort="${c.key}" tabindex="0"
-                role="button">${c.label}${arrow}</th>`;
-  }).join('');
 
-  el.innerHTML = `<table class="txns">
-      <thead><tr>${head}</tr></thead>
-      <tbody>${txns
-        .map((t) => {
-          const d = t.date ? new Date(t.date) : null;
-          const when = d ? d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
-          return `<tr>
-            <td class="dim nowrap">${when}</td>
-            <td>
-              <div class="cp">${esc(t.counterparty || '—')}</div>
-              <div class="dim small">
-                <span class="acct acct-${(t.accountSource || 'mpesa') === 'mpesa' ? 'mpesa' : 'bank'}">${esc(
-                  ACCOUNT_LABELS[t.accountSource || 'mpesa'] || t.accountSource
-                )}</span>
-                ${esc(t.type)}${t.receipt ? ' · ' + esc(t.receipt) : ''}
-              </div>
-              ${onNote
-                ? `<div class="note-line${t.note ? ' has' : ''}" data-note-for="${esc(t.id)}">
-                     <button class="note-btn" type="button" data-note="${esc(t.id)}"
-                       title="${t.note ? 'Edit the note' : 'Add a note: what was this for?'}">${t.note ? esc(t.note) : '+ note'}</button>
-                   </div>`
-                : ''}
-            </td>
-            <td class="num ${t.direction === 'In' ? 'in' : ''}">${t.direction === 'In' ? '+' : '−'}${fmt(t.amount)}</td>
-            <td>${
-              t.isSplit
-                ? `<div class="cat-split">
-                     <button class="split-tag" data-split="${esc(t.id)}" title="Edit split">Split ✎</button>
-                     <div class="dim small">${t.splits.map((p) => `${esc(p.category)} ${fmt(p.amount)}`).join(' · ')}</div>
-                   </div>`
-                : `<div class="cat-cell">
-                     <select data-id="${esc(t.id)}" class="cat" title="Set by: ${esc(t.why || '—')}">
-                       <option selected>${esc(t.category)}</option>
-                     </select>${
-                       onSplit && t.direction === 'Out'
-                         ? `<button class="split-open" data-split="${esc(t.id)}" title="Split across categories">⑃</button>`
-                         : ''
-                     }
-                   </div>`
-            }</td>
-          </tr>`;
-        })
-        .join('')}</tbody></table>`;
+  const sorter = `<div class="tx-sort" role="group" aria-label="Sort by">
+      <span class="tx-sort-lab">Sort</span>${SORTS.map((s) => {
+        const on = sort.key === s.key;
+        return `<button type="button" class="tx-sort-b${on ? ' on' : ''}" data-sort="${s.key}"
+                  aria-pressed="${on}">${s.label}${on ? SORT_ARROW(sort.dir) : ''}</button>`;
+      }).join('')}</div>`;
 
-  // Fill a picker the first time it is touched. Both events, because a tap on a
-  // phone and a keyboard tab are different ways in, and the list has to be there
-  // before the native picker opens.
-  const fill = (e) => {
-    const sel = e.target.closest && e.target.closest('select.cat');
-    if (!sel || sel.dataset.full) return;
-    const current = sel.value;
-    sel.innerHTML = opts.map((o) => `<option${o === current ? ' selected' : ''}>${esc(o)}</option>`).join('');
-    sel.value = current;
-    sel.dataset.full = '1';
+  const row = (t, withDate) => {
+    const out = t.direction !== 'In';
+    const cat = t.category || 'Uncategorised';
+    const extra = t.isSplit && t.splits ? t.splits.length - 1 : 0;
+    const when = [withDate ? shortDate(t.date) : '', timeOf(t.date)].filter(Boolean).join(' · ');
+    return `<button type="button" class="tx" data-open="${esc(t.id)}">
+        ${discOf(cat)}
+        <span class="tx-text">
+          <span class="tx-name">${esc(t.counterparty || '—')}</span>
+          <span class="tx-meta">
+            <span class="tx-chip" style="--hue:${hueOf(cat)}">${esc(cat)}${extra ? ` +${extra}` : ''}</span>
+            ${when ? `<span class="tx-when">${esc(when)}</span>` : ''}
+            ${t.note ? `<span class="tx-note" title="${esc(t.note)}">${NOTE_ICON}<span>${esc(t.note)}</span></span>` : ''}
+          </span>
+        </span>
+        <span class="tx-amt ${out ? 'out' : 'in'}">${out ? '−' : '+'}${fmt(t.amount)}</span>
+      </button>`;
   };
-  el.addEventListener('pointerdown', fill, true);
-  el.addEventListener('focusin', fill, true);
 
-  el.querySelectorAll('select.cat').forEach((sel) => {
-    sel.addEventListener('change', () => onEdit(sel.dataset.id, sel.value));
-  });
+  // By day only when the list is in date order. Sorted by amount, a day header
+  // would be repeated above every other row; one block with the date on each
+  // row reads better.
+  let body;
+  if (sort.key === 'date') {
+    const days = [];
+    for (const t of txns) {
+      const k = dayOf(t.date);
+      if (!days.length || days[days.length - 1].k !== k) days.push({ k, rows: [] });
+      days[days.length - 1].rows.push(t);
+    }
+    body = days
+      .map(({ k, rows }) => {
+        const outs = rows.filter((t) => t.direction !== 'In').reduce((a, t) => a + t.amount, 0);
+        const ins = rows.filter((t) => t.direction === 'In').reduce((a, t) => a + t.amount, 0);
+        const sum = [outs ? `−${fmt(outs)}` : '', ins ? `+${fmt(ins)}` : ''].filter(Boolean).join(' · ');
+        return `<div class="tx-day"><span>${esc(dateLabel(k))}</span><span>${sum}</span></div>
+          <section class="tx-group">${rows.map((t) => row(t, false)).join('')}</section>`;
+      })
+      .join('');
+  } else {
+    body = `<section class="tx-group">${txns.map((t) => row(t, true)).join('')}</section>`;
+  }
+
+  el.innerHTML = sorter + body;
+
+  el.querySelectorAll('button[data-open]').forEach((b) =>
+    b.addEventListener('click', () => onOpen(b.dataset.open))
+  );
+  // Same key flips the direction; a new key starts descending (app.js).
+  el.querySelectorAll('button[data-sort]').forEach((b) =>
+    b.addEventListener('click', () => onSort(b.dataset.sort))
+  );
 
   // Showing every transaction at once is thousands of rows nobody scrolls to, and
   // the cost is paid again on every re-render. The filters above are the way to
@@ -435,58 +474,6 @@ export function renderTable(el, txns, onEdit, sort, onSort, totalBeforeFilters =
     btn.addEventListener('click', more.onMore);
     el.appendChild(btn);
   }
-
-  if (onSplit) {
-    el.querySelectorAll('button[data-split]').forEach((b) => {
-      b.addEventListener('click', () => onSplit(b.dataset.split));
-    });
-  }
-
-  // A note is edited in place: the line turns into a box, Enter or leaving it
-  // saves, Escape puts it back. No dialog, because a note is three words and a
-  // dialog for three words is one tap too many on a list you are working down.
-  if (onNote) {
-    el.querySelectorAll('button[data-note]').forEach((b) => {
-      b.addEventListener('click', () => {
-        const id = b.dataset.note;
-        const line = b.closest('.note-line');
-        const was = line.classList.contains('has') ? b.textContent : '';
-        const input = document.createElement('input');
-        input.className = 'note-in';
-        input.type = 'text';
-        input.maxLength = 120;
-        input.placeholder = 'what was this for?';
-        input.value = was;
-        let done = false;
-        const finish = (save) => {
-          if (done) return;
-          done = true;
-          if (save && input.value.trim() !== was) onNote(id, input.value);
-          else { line.innerHTML = ''; line.appendChild(b); }
-        };
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') finish(true);
-          if (e.key === 'Escape') finish(false);
-        });
-        input.addEventListener('blur', () => finish(true));
-        line.innerHTML = '';
-        line.appendChild(input);
-        input.focus();
-        input.select();
-      });
-    });
-  }
-
-  el.querySelectorAll('th.sortable').forEach((th) => {
-    const go = () => onSort(th.dataset.sort);
-    th.addEventListener('click', go);
-    th.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        go();
-      }
-    });
-  });
 }
 
 /** Sort a decorated transaction list. Amounts sort numerically, everything else by text. */

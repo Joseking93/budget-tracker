@@ -338,10 +338,8 @@
       </button>
       <h1>Budget</h1>
     </header>
-    <div class="card">
-<p class="hint">From your wealth tracker, against the month selected above. Edit any figure. Categories a budget doesn't claim are counted separately — a budget you meet by not knowing where money went isn't worth much.</p>
-    <div id="budget"></div>
-    </div>
+<p class="hint view-hint">From your wealth tracker, for the pay month shown below. Tap an amount to change it. Categories a budget doesn't claim are counted separately — a budget you meet by not knowing where money went isn't worth much.</p>
+    <div id="budget" class="budget"></div>
   </section>
 
   <section class="view" data-view="track" hidden>
@@ -595,7 +593,7 @@
       <h1>All transactions</h1>
     </header>
     <div class="card">
-<p class="hint">Change a category and the app remembers that merchant from then on. Click a column heading to sort.</p>
+<p class="hint">Tap a payment to change its category, add a note or split it. A new category is remembered for that name from then on.</p>
     <div class="filters">
       <input id="search" type="search" placeholder="Search name, merchant, receipt or note…" aria-label="Search transactions">
       <select id="cat-filter" aria-label="Filter by category"><option value="all">All categories</option></select>
@@ -609,8 +607,8 @@
     </div>
     <div id="txn-nudge" class="nudge" hidden></div>
     <div id="drill-chip" class="drill-chip" hidden></div>
-    <div id="table-txns" class="scroll"></div>
     </div>
+    <div id="table-txns" class="txlist"></div>
   </section>
 
   <section class="view" data-view="basket" hidden>
@@ -713,6 +711,7 @@
       </button>
       <h1>Categories</h1>
     </header>
+    <div id="cat-spend" class="cat-spend"></div>
     <div class="card">
 <p class="hint">Add your own — Gas, Pets, School fees, whatever you track. They appear in every dropdown straight away.</p>
       <div class="namerule-add">
