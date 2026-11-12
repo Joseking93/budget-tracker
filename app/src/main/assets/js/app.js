@@ -2012,10 +2012,11 @@ function wireAddLender(el) {
  * on what was borrowed and as what that comes to per month, which is the only
  * number that lets a 25-day loan be compared with a 60-day one.
  */
-function renderLoanLedger(txns) {
-  const box = $('#loan-ledger');
-  if (!box) return;
-  const today = isoDay(new Date());
+/**
+ * What is owed, two ways: the lenders' own notices, and the balances typed in
+ * by hand. The ledger panel draws both; the More sheet only wants their total.
+ */
+function owedLists(txns, today = isoDay(new Date())) {
   const rows = loanLedger(store.loanNotices(), txns, today);
   // The balances typed in by hand - plots, a logbook loan - belong in the
   // same list as the lenders' own figures: owed is owed, whoever said it.
@@ -2040,6 +2041,21 @@ function renderLoanLedger(txns) {
       kind: r.p.kind,
     }))
     .sort((x, y) => y.owed - x.owed);
+  return { rows, typed };
+}
+
+/** Everything still open, lenders and typed balances together; null when nothing is kept. */
+function owedNow(txns) {
+  const { rows, typed } = owedLists(txns);
+  if (!rows.length && !typed.length) return null;
+  return [...typed, ...rows.filter((r) => !r.cleared)].reduce((s, r) => s + r.owed, 0);
+}
+
+function renderLoanLedger(txns) {
+  const box = $('#loan-ledger');
+  if (!box) return;
+  const today = isoDay(new Date());
+  const { rows, typed } = owedLists(txns, today);
   if (!rows.length && !typed.length) {
     // Nothing kept yet. On the phone that usually means the lenders' messages
     // were read before the app knew to keep them: the reader only fetches
@@ -3254,6 +3270,9 @@ const BASKET_PULLED = 'mpesa-tracker.basket-pulled';
  */
 function showView(view, push = true) {
   const target = document.querySelector(`.view[data-view="${view}"]`) ? view : 'home';
+  // Whatever moved the page - a row, a link, the back button - the More sheet
+  // is not left open over where it went.
+  closeMoreSheet();
   document.querySelectorAll('.view').forEach((v) => {
     v.hidden = v.dataset.view !== target;
   });
@@ -3314,55 +3333,147 @@ function wireWindow() {
 }
 
 /**
- * The menu in the corner: the things that are setup rather than money.
+ * More: the bar's fourth item, and the sheet it opens.
  *
- * They were all reachable before, two taps down behind "Everything else" -
- * which is the right place for a report and the wrong one for "add a category".
+ * The hamburger in the top corner was out of the thumb's reach and two taps
+ * from everything. The money screens are tiles here with their figures on
+ * them, so opening it tells you something before you choose; the records and
+ * the app itself are plain rows under them.
  */
-function wireMenu() {
-  const btn = $('#btn-menu');
-  const menu = $('#menu');
-  const scrim = $('#menu-scrim');
-  if (!btn || !menu) return;
-
-  const show = (open) => {
-    menu.hidden = !open;
-    if (scrim) scrim.hidden = !open;
-    btn.setAttribute('aria-expanded', String(open));
-    const ver = $('#menu-version');
-    if (open && ver) {
-      // window.Android directly: `bridge` is a local inside two other
-      // functions, and reaching for it here was a ReferenceError that only
-      // showed up as a silently empty line.
-      const a = window.Android;
-      const v = a && a.appVersion ? a.appVersion() : null;
-      ver.textContent = v ? `Version ${v}` : `Pages ${ASSET_BUILD}`;
-    }
-  };
-
-  btn.addEventListener('click', () => show(menu.hidden));
-  // Scrolling the page with a menu open is a menu you have forgotten about,
-  // sitting over the thing you are trying to read. The gesture is listened for
-  // as well as the scroll it causes: a scroll event is not guaranteed (a list
-  // already at its end fires none) and the intent is the same either way.
-  const closeOnMove = () => {
-    if (!menu.hidden) show(false);
-  };
-  for (const ev of ['scroll', 'wheel', 'touchmove']) {
-    addEventListener(ev, closeOnMove, { passive: true, capture: true });
+function setMoreTab(open) {
+  const more = $('#tab-more');
+  const home = document.querySelector('.tabs a.tab[href="index.html"]');
+  if (more) {
+    more.classList.toggle('on', open);
+    more.setAttribute('aria-expanded', String(open));
   }
-  if (scrim) scrim.addEventListener('click', () => show(false));
-  // Every row closes it: a menu you have to dismiss as well as choose from is
-  // one more tap than anyone wants. The update buttons are the exception -
-  // closing on the tap that starts the check is how you end up tapping it
-  // again, because nothing on screen ever said it had begun.
-  menu.querySelectorAll('button').forEach((el) => {
-    if (el.closest('#update-box')) return;
-    el.addEventListener('click', () => show(false));
-  });
+  if (home) home.classList.toggle('on', !open);
+}
+
+/** The tiles' figures, worked out now rather than at load, so they are current after an import. */
+function fillMoreSheet() {
+  const DASH = '—';
+  const set = (id, text) => {
+    const el = $(id);
+    if (el) el.textContent = text;
+  };
+  const all = decorate(visible());
+  const todayIso = isoDay(new Date());
+
+  const owed = owedNow(all);
+  set('#msh-owe', owed == null ? DASH : viz.fmt(owed));
+
+  const pocket = all.length ? pocketNow() : null;
+  set('#msh-cash', pocket ? viz.fmt(pocket.pocket) : DASH);
+
+  // The month today belongs to, asked the way the home screen asks it.
+  const month = monthResolver(all)({ date: `${todayIso}T12:00:00` }) || todayIso.slice(0, 7);
+  const { budgeted, spent, left, cycleStart } = budgetReport(store.budgets(), all, month);
+  if (all.length && budgeted > 0) {
+    set('#msh-budget', `${Math.round((spent / budgeted) * 100)}% used`);
+    set('#msh-budget-sub', left >= 0 ? `${viz.fmt(left)} left` : `${viz.fmt(-left)} over`);
+  } else {
+    set('#msh-budget', DASH);
+    set('#msh-budget-sub', all.length ? 'No budget set' : ' ');
+  }
+
+  const { from } = cycleBounds(all, cycleStart, todayIso);
+  const daysIn = Math.round((Date.parse(todayIso) - Date.parse(from)) / 86400000) + 1;
+  set('#msh-month', monthLabel(month).replace(/\s\d{4}$/, '') || DASH);
+  set('#msh-month-sub', daysIn > 0 ? `${daysIn} day${daysIn === 1 ? '' : 's'} in` : ' ');
+
+  // M-PESA first, as the balance chart opens on it; another wallet only when
+  // M-PESA has never carried a balance.
+  const latest = latestBalances();
+  const acct = latest.has('mpesa')
+    ? 'mpesa'
+    : [...latest.entries()].sort((x, y) => (x[1].date < y[1].date ? 1 : -1)).map(([a]) => a)[0];
+  if (acct) {
+    set('#msh-balance', viz.fmt(latest.get(acct).balance));
+    const months = new Set(balanceSeries(all, acct).map((p) => p.day.slice(0, 7))).size;
+    set('#msh-balance-sub', months ? `Last ${months} month${months === 1 ? '' : 's'}` : 'Latest reading');
+  } else {
+    set('#msh-balance', DASH);
+    set('#msh-balance-sub', ' ');
+  }
+}
+
+function openMoreSheet() {
+  const sheet = $('#more-sheet');
+  if (!sheet || !sheet.hidden) return;
+  try {
+    fillMoreSheet();
+  } catch (e) {
+    // A figure that cannot be worked out must not keep the sheet shut.
+    console.error('More sheet figures:', e);
+  }
+  sheet.hidden = false;
+  setMoreTab(true);
+  // The bar slides away on the way down a page; More is opened from it, so it stays.
+  const bar = document.querySelector('.tabs');
+  if (bar) bar.classList.remove('away');
+  const panel = sheet.querySelector('.msh');
+  panel.scrollTop = 0;
+  slideUp(panel);
+}
+
+function closeMoreSheet() {
+  const sheet = $('#more-sheet');
+  if (!sheet || sheet.hidden) return;
+  sheet.hidden = true;
+  sheet.querySelector('.msh').style.transform = '';
+  setMoreTab(false);
+}
+
+function wireMoreSheet() {
+  const sheet = $('#more-sheet');
+  const tab = $('#tab-more');
+  if (!sheet || !tab) return;
+  tab.addEventListener('click', () => (sheet.hidden ? openMoreSheet() : closeMoreSheet()));
+
+  // Capture, so the sheet is gone BEFORE the row's own data-go handler moves
+  // to the view: closed first, then navigated.
+  sheet.addEventListener(
+    'click',
+    (e) => {
+      if (e.target === sheet || e.target.closest('[data-go]')) closeMoreSheet();
+    },
+    true
+  );
   addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') show(false);
+    // Only when it is the top thing open: a dialog over it takes Escape first.
+    if (e.key === 'Escape' && openOverlays()[0] === sheet) closeMoreSheet();
   });
+
+  // Pulled down from the top, it goes; not pulled far enough, it springs back.
+  const panel = sheet.querySelector('.msh');
+  let y0 = null;
+  let dy = 0;
+  panel.addEventListener(
+    'touchstart',
+    (e) => {
+      y0 = panel.scrollTop <= 0 ? e.touches[0].clientY : null;
+      dy = 0;
+    },
+    { passive: true }
+  );
+  panel.addEventListener(
+    'touchmove',
+    (e) => {
+      if (y0 == null) return;
+      dy = e.touches[0].clientY - y0;
+      panel.style.transform = dy > 0 ? `translateY(${dy}px)` : '';
+    },
+    { passive: true }
+  );
+  const end = () => {
+    if (y0 == null) return;
+    y0 = null;
+    if (dy > 90) closeMoreSheet();
+    else panel.style.transform = '';
+  };
+  panel.addEventListener('touchend', end);
+  panel.addEventListener('touchcancel', end);
 }
 
 function wireViews() {
@@ -3838,7 +3949,7 @@ async function init() {
   // suffix scheme, so one row survived dedupe as a phantom. Statements are the
   // source of truth; the app starts empty and you import.
   wireViews();
-  wireMenu();
+  wireMoreSheet();
   wireWindow();
   wire();
   wireSettings();
@@ -4628,7 +4739,7 @@ function openOverlays() {
   return [
     $('#catpick'), // opened over the dialogs, so it closes first
     ...document.querySelectorAll('.modal-overlay:not(#catpick)'),
-    $('#menu'),
+    $('#more-sheet'),
   ].filter(shown);
 }
 
@@ -4650,7 +4761,7 @@ function wireBackOverlays() {
     const top = open[0];
 
     if (top.id === 'catpick') closeCategoryPicker(null);
-    else if (top.id === 'menu') $('#menu-scrim').click();
+    else if (top.id === 'more-sheet') closeMoreSheet();
     else {
       // A dialog's own close button knows what else to put back; only when
       // there isn't one does this just hide the thing.
@@ -5395,8 +5506,14 @@ function applyLook(look) {
   if (look === 'minted') root.dataset.look = 'minted';
   else delete root.dataset.look;
   root.style.background = '';
-  const label = $('#look-label');
-  if (label) label.textContent = look === 'minted' ? 'Standard look' : 'Minted look';
+  // The switch is an icon in the More sheet's header; its name says what a
+  // tap gives you, not where you are.
+  const btn = $('#btn-look');
+  if (btn) {
+    const gives = look === 'minted' ? 'Standard look' : 'Minted look';
+    btn.setAttribute('aria-label', gives);
+    btn.title = gives;
+  }
   try {
     localStorage.setItem(LOOK_KEY, look);
   } catch (e) {
@@ -5429,13 +5546,14 @@ function applyTheme(mode) {
   // the theme left the page colour behind - a strip of the old theme across the
   // top of the new one. Hand control back now that the stylesheet is here.
   document.documentElement.style.background = '';
-  // The theme control is a row in the menu now, so the icon and the words go
-  // into their own spans rather than replacing the button's whole contents.
-  // Both say what tapping it GIVES you, not where you are.
-  const icon = $('#theme-icon');
-  const label = $('#theme-label');
-  if (icon) icon.textContent = mode === 'dark' ? '☀' : '☾';
-  if (label) label.textContent = mode === 'dark' ? 'Light appearance' : 'Dark appearance';
+  // An icon in the More sheet's header now. Its name says what tapping it
+  // GIVES you, not where you are.
+  const btn = $('#btn-theme');
+  if (btn) {
+    const gives = mode === 'dark' ? 'Light appearance' : 'Dark appearance';
+    btn.setAttribute('aria-label', gives);
+    btn.title = gives;
+  }
   try {
     localStorage.setItem(THEME_KEY, mode);
   } catch (e) {

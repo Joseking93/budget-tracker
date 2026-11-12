@@ -37,40 +37,7 @@
         <p class="today" id="home-today"></p>
         <h1 id="home-greet">Hello</h1>
       </div>
-      <button id="btn-menu" class="ghost themebtn" aria-haspopup="true" aria-expanded="false"
-              aria-controls="menu" title="Settings and setup">
-        <svg width="17" height="13" viewBox="0 0 18 14" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <path d="M1 1h16M1 7h16M1 13h16"/>
-        </svg>
-      </button>
     </div>
-
-    <div id="menu-scrim" class="scrim" hidden></div>
-    <nav id="menu" class="menu" hidden aria-label="Settings and setup">
-      <button id="btn-theme" class="menurow" type="button">
-        <span id="theme-label">Dark appearance</span>
-        <span id="theme-icon" class="menu-icon">&#9680;</span>
-      </button>
-      <button id="btn-look" class="menurow" type="button">
-        <span id="look-label">Minted look</span>
-        <span class="menu-icon">&#9679;</span>
-      </button>
-      <hr>
-      <button class="menurow" type="button" data-go="intake">Add transactions<svg class="navrow-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
-      <button class="menurow" type="button" data-go="cats">Categories<svg class="navrow-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
-      <button class="menurow" type="button" data-go="people">People &amp; name rules<svg class="navrow-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
-      <button class="menurow" type="button" data-go="budget">Budget<svg class="navrow-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
-      <button class="menurow" type="button" data-go="settings">Who you are<svg class="navrow-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
-      <button class="menurow" type="button" data-go="data">Data &amp; sync<svg class="navrow-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
-      <hr>
-      <div id="update-box" class="menu-update" hidden>
-        <p class="hint" id="update-msg"></p>
-        <button id="btn-update" class="ghost">Check for updates</button>
-        <button id="btn-install" class="primary" hidden>Install it</button>
-      </div>
-      <p class="menu-ver" id="menu-version"></p>
-    </nav>
 
     <!-- Filled only when the app is holding transactions it is not reading. A
          screen of honest zeros is indistinguishable from a broken one. -->
@@ -173,7 +140,6 @@
     <section class="rowgroup">
       <button class="navrow" type="button" data-go="txns"><span class="navrow-t">All transactions</span><span id="txn-badge" class="badge"></span><svg class="navrow-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
       <button class="navrow" type="button" data-go="month" id="month-card"><span class="navrow-t">Monthly report</span><span id="month-badge" class="badge"></span><svg class="navrow-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
-      <button class="navrow" type="button" data-go="more"><span class="navrow-t">Everything else</span><svg class="navrow-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
     </section>
   </section>
 
@@ -841,7 +807,83 @@
   <a class="tab on" href="index.html">Tracker</a>
   <a class="tab" href="basket.html">Basket</a>
   <a class="tab" href="basket.html#receipts">Receipts</a>
+  <button type="button" class="tab" id="tab-more" aria-haspopup="dialog" aria-controls="more-sheet"
+          aria-expanded="false"><svg class="tab-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18.5" cy="12" r="1"/></svg>More</button>
 </nav>
+
+<!-- More: the four money screens as tiles with their figures on them, then the
+     records and the app itself as plain rows. Opened from the bar, under it, so
+     the bar stays where the thumb is. The figures are filled when it opens. -->
+<div id="more-sheet" class="more-overlay" hidden>
+  <section class="msh" role="dialog" aria-modal="true" aria-labelledby="msh-title">
+    <div class="msh-grab" aria-hidden="true"></div>
+    <div class="msh-head">
+      <h2 id="msh-title">More</h2>
+      <button id="btn-theme" class="msh-ib" type="button" aria-label="Light or dark" title="Light or dark"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5z"/></svg></button>
+      <button id="btn-look" class="msh-ib" type="button" aria-label="Minted look" title="Look"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c3.6 4 5.5 7.2 5.5 9.9a5.5 5.5 0 0 1-11 0c0-2.7 1.9-5.9 5.5-9.9z"/></svg></button>
+    </div>
+
+    <div class="msh-tiles">
+      <button type="button" class="msh-tile msh-wide" data-go="debts">
+        <span class="msh-sq msh-m"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M9 9h6M9 13h6M9 17h3"/></svg></span>
+        <span class="msh-tt">
+          <span class="msh-tl">What I owe</span>
+          <span class="msh-tv" id="msh-owe">&mdash;</span>
+          <span class="msh-ts">Loans and plots</span>
+        </span>
+        <svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg>
+      </button>
+      <button type="button" class="msh-tile" data-go="cash">
+        <span class="msh-sq msh-m"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6.5 9.5v5M17.5 9.5v5"/></svg></span>
+        <span class="msh-tl">Cash in hand</span>
+        <span class="msh-tv" id="msh-cash">&mdash;</span>
+        <span class="msh-ts">Counted today</span>
+      </button>
+      <button type="button" class="msh-tile" data-go="budget">
+        <span class="msh-sq msh-m"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5V12l6 6"/></svg></span>
+        <span class="msh-tl">Budget</span>
+        <span class="msh-tv" id="msh-budget">&mdash;</span>
+        <span class="msh-ts" id="msh-budget-sub">&nbsp;</span>
+      </button>
+      <button type="button" class="msh-tile" data-go="month">
+        <span class="msh-sq msh-m"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M4 10h16M8.5 3v4M15.5 3v4"/></svg></span>
+        <span class="msh-tl">Monthly report</span>
+        <span class="msh-tv" id="msh-month">&mdash;</span>
+        <span class="msh-ts" id="msh-month-sub">&nbsp;</span>
+      </button>
+      <button type="button" class="msh-tile" data-go="balance">
+        <span class="msh-sq msh-m"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 19.5h17"/><path d="M5 15l4.5-4.5 3.5 3L19 7"/><path d="M15 7h4v4"/></svg></span>
+        <span class="msh-tl">Balance over time</span>
+        <span class="msh-tv" id="msh-balance">&mdash;</span>
+        <span class="msh-ts" id="msh-balance-sub">&nbsp;</span>
+      </button>
+    </div>
+
+    <p class="msh-sec">Records</p>
+    <div class="msh-list">
+      <button type="button" class="msh-row" data-go="txns"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4.5" cy="6" r=".6"/><circle cx="4.5" cy="12" r=".6"/><circle cx="4.5" cy="18" r=".6"/></svg></span><span class="msh-ml">All transactions</span><svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
+      <button type="button" class="msh-row" data-go="cats"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg></span><span class="msh-ml">Categories</span><svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
+      <button type="button" class="msh-row" data-go="recurring"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.5"/><path d="M4 20v-4.5h4.5"/></svg></span><span class="msh-ml">Recurring payments</span><svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
+      <button type="button" class="msh-row" data-go="refunds"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4.5 9.5 9 5"/><path d="M4.5 9.5H14a5.5 5.5 0 0 1 0 11h-3"/></svg></span><span class="msh-ml">Refunds</span><svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
+      <button type="button" class="msh-row" data-go="fuliza"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5l6 6 4-4 7 7"/><path d="M20.5 11.5v4h-4"/></svg></span><span class="msh-ml">Fuliza overdraft</span><svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
+      <button type="button" class="msh-row" data-go="people"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8.5" r="3.2"/><path d="M3 19.5c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><path d="M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17.5 14.8c1.8.6 3.1 2.3 3.5 4.7"/></svg></span><span class="msh-ml">People &amp; name rules</span><svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
+    </div>
+
+    <p class="msh-sec">App</p>
+    <div class="msh-list">
+      <button type="button" class="msh-row" data-go="intake"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/></svg></span><span class="msh-ml">Add transactions</span><svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
+      <button type="button" class="msh-row" data-go="settings"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c.8-3.7 3.6-5.8 7-5.8s6.2 2.1 7 5.8"/></svg></span><span class="msh-ml">Who you are</span><svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
+      <button type="button" class="msh-row" data-go="data"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6"/><path d="M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8"/></svg></span><span class="msh-ml">Data &amp; sync</span><svg class="msh-go" width="7" height="12" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg></button>
+      <!-- Only in the Android app. Tapping it does not close the sheet: the
+           answer comes back here, and a sheet that vanished on the tap is how
+           you end up tapping it again. -->
+      <div id="update-box" class="msh-upd" hidden>
+        <button type="button" id="btn-update" class="msh-row msh-quiet"><span class="msh-sq"><svg class="msh-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19.5h14"/></svg></span><span class="msh-ml">Check for updates<span class="msh-msg" id="update-msg"></span></span></button>
+        <button type="button" id="btn-install" class="primary" hidden>Install it</button>
+      </div>
+    </div>
+  </section>
+</div>
 
 <div id="toast" class="toast"></div>
 <script type="module" src="js/app.js"></script>

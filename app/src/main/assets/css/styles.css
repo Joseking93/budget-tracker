@@ -294,11 +294,6 @@ select.budget-assign { pointer-events: none; }
 }
 .catpick-none { padding: 14px 4px; color: var(--ink2); font-size: 13px; }
 
-/* Updates live in the menu now, so they have to fit a 260px popover. */
-.menu-update { padding: 4px 8px 2px; display: flex; flex-direction: column; gap: 7px; }
-.menu-update button { width: 100%; }
-.menu-update .hint { margin: 0; font-size: 12px; }
-
 /* ── Cash ────────────────────────────────────────────────── */
 .balrow-cash { border-color: var(--tint-line); background: var(--tint-soft); }
 .bal-icon-cash { background: rgba(255, 159, 10, .22); color: var(--tint); }
@@ -486,33 +481,6 @@ button.owe-add:hover { background: var(--card); }
 .padkeys button:active { background: var(--card-line-strong); }
 .padsave { width: 100%; margin: 10px 0 84px; } /* clear of the floating tab bar */
 
-/* ── The menu ─────────────────────────────────────────────── */
-.scrim {
-  position: fixed; inset: 0; z-index: 40;
-  background: rgba(0, 0, 0, .28);
-}
-.menu {
-  position: fixed; z-index: 41;
-  top: calc(12px + env(safe-area-inset-top, 0px));
-  right: max(12px, env(safe-area-inset-right, 0px));
-  width: min(260px, calc(100vw - 24px));
-  display: flex; flex-direction: column;
-  background: var(--shell); border: 1px solid var(--shell-line);
-  border-radius: var(--r-lg); padding: 6px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, .35);
-  backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
-}
-.menurow {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 11px 12px; border: 0; background: none; border-radius: var(--r-sm);
-  font: inherit; font-weight: 500; color: var(--ink); text-align: left;
-}
-.menurow > :first-child { flex: 1 1 auto; }
-.menurow:hover { background: var(--card-3); border: 0; }
-.menu hr { border: 0; border-top: 1px solid var(--card-line); margin: 5px 8px; }
-.menu-icon { color: var(--tint); font-size: 15px; }
-.menu-ver { margin: 7px 12px 4px; font-size: 11px; color: var(--muted); }
-
 /* ── Views ─────────────────────────────────────────────────── */
 /* The page used to be nineteen collapsible cards stacked on top of each other,
    which on a phone is several thousand pixels of other people's business before
@@ -582,11 +550,6 @@ button.owe-add:hover { background: var(--card); }
 .controls { display: flex; gap: 8px; align-items: center; flex: none; }
 .rangerow { display: flex; align-items: center; gap: 8px; margin: 2px 2px -4px; }
 .rangerow select { font-size: 13px; padding: 7px 28px 7px 10px; }
-.themebtn {
-  width: 38px; height: 38px; border-radius: 19px; padding: 0; flex: none;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--tint); font-size: 15px;
-}
 
 main {
   max-width: 1200px; margin: 0 auto;
@@ -1660,3 +1623,91 @@ button.bl-amt.unset { color: var(--tint); }
 }
 .bl-out .bl-name .cat-chip { margin: 0; font-size: 12px; font-weight: 700; }
 .bl-out em { flex: none; font-style: normal; font-size: 13.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* ── More: the sheet behind the bar's fourth item ────────────────────────── */
+/* Under the tab bar (30), so the bar stays visible with More lit; over the
+   page. Dialogs and the category picker (45-50) still open above it. */
+.more-overlay {
+  position: fixed; inset: 0; z-index: 29;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(0, 0, 0, 0.58);
+  animation: overlay-in .18s var(--ease);
+}
+/* A light page under 58% black reads as a grey screen, not a sheet over the page. */
+:root[data-theme="light"] .more-overlay { background: rgba(0, 0, 0, 0.34); }
+.msh {
+  position: relative; width: 100%; max-width: 520px; min-width: 0;
+  max-height: calc(100% - 58px - env(safe-area-inset-top, 0px));
+  overflow-y: auto; overscroll-behavior: contain;
+  background: var(--bg); color: var(--ink);
+  border-radius: 24px 24px 0 0;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.45);
+  /* Clear of the floating bar: its 22px lift, its own height, and a gap. */
+  padding: 8px 12px calc(90px + env(safe-area-inset-bottom, 0px));
+}
+.msh-grab { width: 38px; height: 5px; border-radius: 999px; background: var(--track); margin: 0 auto 10px; }
+.msh-head { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
+.msh-head h2 { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 20px; font-weight: 900; letter-spacing: -.03em; }
+.msh-i {
+  width: 18px; height: 18px; display: block; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+}
+button.msh-ib {
+  width: 36px; height: 36px; padding: 0; flex: none; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--card); border: 1px solid var(--card-line); color: var(--ink2);
+}
+button.msh-ib:hover { background: var(--card-3); border-color: var(--card-line); color: var(--ink); }
+
+.msh-tiles { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 6px; }
+button.msh-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
+  padding: 12px 13px; border: 0; border-radius: 18px;
+  background: var(--card); color: var(--ink); font: inherit; text-align: left;
+}
+button.msh-tile:hover { background: var(--card-3); border: 0; }
+.msh-tile.msh-wide { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 12px; }
+.msh-tt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.msh-sq {
+  width: 32px; height: 32px; flex: none; border-radius: 10px;
+  display: grid; place-items: center;
+  background: var(--track); color: var(--ink2);
+}
+.msh-sq.msh-m { background: var(--tint-soft); color: var(--tint); }
+.msh-tile .msh-sq { margin-bottom: 8px; }
+.msh-tile.msh-wide .msh-sq { margin: 0; width: 40px; height: 40px; border-radius: 12px; }
+.msh-tl, .msh-tv, .msh-ts { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msh-tl { font-size: 13px; font-weight: 700; color: var(--ink2); }
+.msh-tv { font-size: 19px; font-weight: 900; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.msh-wide .msh-tv { font-size: 24px; }
+.msh-ts { font-size: 11px; font-weight: 600; color: var(--ink2); }
+.msh-go { flex: none; color: var(--ink2); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.msh-sec {
+  margin: 16px 4px 4px; font-size: 11.5px; font-weight: 800;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ink2);
+}
+.msh-list { background: var(--card); border-radius: 18px; padding: 0 14px; }
+button.msh-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0;
+  padding: 9px 0; border: 0; border-top: 1px solid var(--card-line); border-radius: 0;
+  background: none; color: var(--ink); font: inherit; text-align: left;
+}
+.msh-list > button.msh-row:first-child { border-top: 0; }
+button.msh-row:hover { background: none; border-color: var(--card-line); color: var(--tint); }
+.msh-ml {
+  flex: 1 1 auto; min-width: 0; font-size: 14.5px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Checking for updates is the app looking after itself, not somewhere to go. */
+.msh-upd { padding-bottom: 10px; }
+button.msh-row.msh-quiet { color: var(--ink2); }
+.msh-quiet .msh-ml { font-weight: 600; white-space: normal; }
+.msh-msg { display: block; font-size: 11.5px; font-weight: 600; color: var(--ink2); }
+.msh-msg:empty { display: none; }
+.msh-upd .primary { width: 100%; }
+
+/* The bar's fourth item is a button, and the page's own button rules would
+   otherwise give it a box on hover. */
+.tabs button.tab:hover { background: transparent; border-color: transparent; }
+.tabs button.tab.on:hover { background: var(--tint); }
