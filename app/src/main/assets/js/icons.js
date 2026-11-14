@@ -86,6 +86,9 @@ const G = {
 const RULES = [
   [/^everything else$|^other$/i, 'dots'],
   [/uncategor/i, 'question'],
+  // Before the house rule: "Househelp salary" and "Household Staff" both say
+  // "hous", and they are the person who cleans, not the rent.
+  [/house ?help|household staff|nanny/i, 'broom'],
   [/rent|hous|mortgage/i, 'house'],
   [/grocer|supermarket|food|market|duka/i, 'basket'],
   [/shop|retail|clothes/i, 'bag'],

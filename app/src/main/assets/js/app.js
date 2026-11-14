@@ -19,7 +19,7 @@ import { monthsIn, monthLabel, compareMonths, biggestDriver, nextMonth } from '.
 import { salaryRuns, monthResolver, cycleMonthOf } from './salary.js';
 import { balanceSeries, lowDays, fulizaReport } from './balance.js';
 import { findRecurring, committedMonthly } from './recurring.js';
-import { budgetReport } from './budgets.js';
+import { budgetReport, budgetHistory, historyVerdict } from './budgets.js';
 import { loanLedger } from './loans.js';
 import * as basket from './basket.js';
 import { ACCOUNT_LABELS } from './import.js';
@@ -65,6 +65,8 @@ const state = {
   txnLimit: 150,
   // The Categories view as tiles rather than rows.
   catGrid: false,
+  // The budget line the History detail is showing (its id).
+  historyLine: null,
 };
 
 // Categories are derived on read, never baked into the stored transaction — so
@@ -87,6 +89,18 @@ function decorate(txns) {
   if (decorateCache.rev === store.revision() && decorateCache.out && decorateCache.n === txns.length) {
     return decorateCache.out;
   }
+  const { out, base } = decorateFresh(txns);
+  decorateCache = { rev: store.revision(), n: txns.length, out, base };
+  return out;
+}
+
+/**
+ * decorate() without the cache: the work itself. Kept apart so the History
+ * view can decorate EVERYTHING on file - it reaches back further than the
+ * reading window - without evicting the windowed set every other screen is
+ * drawn from. See historyData.
+ */
+function decorateFresh(txns) {
   const { userRules, nameRules, overrides, refundLinks } = store.getState();
   const byId = new Map(txns.map((t) => [t.id, t]));
 
@@ -159,8 +173,7 @@ function decorate(txns) {
   // `base` is kept as well as `out`: it is the transactions as you filed them
   // - splits and overrides, but not the cash breakdown laid on top - which is
   // what the pocket has to be worked out from (see pocketNow).
-  decorateCache = { rev: store.revision(), n: txns.length, out: [...decorated.values()], base };
-  return decorateCache.out;
+  return { out: [...decorated.values()], base };
 }
 
 /** What should be in your pocket, from the transactions currently being read. */
@@ -332,6 +345,10 @@ function render() {
   // home screen's figures do.
   renderLoanActivity(all, cycleMonthOf(isoDay(new Date())));
   renderTriage(txns);
+  // Only the History screen on show, and only from its own cache.
+  const onView = document.querySelector('.view:not([hidden])');
+  if (onView && onView.dataset.view === 'history') renderHistory();
+  if (onView && onView.dataset.view === 'history-line') renderHistoryLine();
 
   // Cross-account check. Only shown once both accounts are actually present —
   // otherwise there is nothing to reconcile and the panel would be noise.
@@ -1248,6 +1265,11 @@ function renderBudget(all) {
   };
 
   $('#budget').innerHTML = `
+    <button type="button" class="hist-entry" data-go="history">
+      <span class="hist-ico" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M10 20V6M15 20v-9M20 20V9"/></svg></span>
+      <span class="hist-entry-t">History<small>Every line, month by month</small></span>
+      ${HIST_CHEVRON}
+    </button>
     <section class="bl-group bl-sum">
       <p class="bl-when">${escapeHtml(monthLabel(state.month))} · ${escapeHtml(when)}</p>
       <p class="bl-big ${left < 0 ? 'bad' : ''}">${viz.fmt(Math.abs(left))}<span>${left < 0 ? 'over' : 'left'} of ${viz.fmt(budgeted)}</span></p>
@@ -1314,7 +1336,7 @@ function renderBudget(all) {
           done = true;
           const value = Math.max(0, Number(input.value) || 0);
           if (save && value !== r.amount) {
-            store.setBudget(r.id, value);
+            store.setBudget(r.id, value, state.month || cycleMonthOf(isoDay(new Date())));
             render();
             toast('Budget updated.');
           } else {
@@ -1341,6 +1363,7 @@ function renderBudget(all) {
   // Every budget category is a question you can follow: click it to see the
   // transactions behind it, for the month the budget is showing.
   wireDrill($('#budget'), state.month);
+  wireViewLinks($('#budget'));
 
   const payBtn = $('#assign-pay');
   if (payBtn) payBtn.addEventListener('click', () => openPayAssign(state.month));
@@ -1354,6 +1377,248 @@ function renderBudget(all) {
         if (line) openBudgetAssign(line, state.month);
       })
     );
+}
+
+/* ---- History: every budget line, month by month -------------------------- */
+//
+// "Is Internet always over, or just this month?" The Budget view answers for
+// one month; this answers across eighteen. The list shows every line's last
+// twelve months as small bars with one sentence that reads them, worst first;
+// a line opens its own screen with the eighteen-month chart, a month table
+// and the year so far.
+//
+// It reaches back further than the reading window (five months by default),
+// so it is drawn from everything on file - and only when one of its two
+// screens is actually on show, never on the home screen's render.
+
+const HISTORY_MONTHS = 18;
+let historyCache = { key: '', data: null };
+
+/** The budget month the History screens end at: the one the Budget view is on. */
+const historyEndMonth = () => state.month || cycleMonthOf(isoDay(new Date()));
+
+/** `n` budget months ending at `end`, oldest first. */
+function monthsEndingAt(end, n) {
+  const [y, m] = end.split('-').map(Number);
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(y, m - 1 - i, 1));
+    out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+/**
+ * Every line's eighteen months, worked out once per change to the data.
+ *
+ * Everything on file has to be categorised for this, not just the window. When
+ * the window already IS everything, the set every other screen uses is reused
+ * as it is; otherwise the whole set is decorated through decorateFresh into a
+ * cache of its own, so decorate()'s windowed cache - which the next render
+ * needs - is left where it was.
+ */
+function historyData() {
+  const end = historyEndMonth();
+  if (historyCache.key === `${store.revision()}:${end}` && historyCache.data) return historyCache.data;
+  const dated = store.allTransactions().filter((t) => t.date);
+  const win = visible();
+  const txns = win.length === dated.length ? decorate(win) : decorateFresh(dated).out;
+  const months = monthsEndingAt(end, HISTORY_MONTHS);
+  // The colour the ring remembers for the line's first category - the slot
+  // store.chartSlots() would hand back - read without asking chartSlots
+  // itself: for a category the ring has never drawn it would remember one, and
+  // that save writes all ten thousand transactions back and moves the revision
+  // on, so the next render re-categorises everything. Such a line (one never on
+  // the ring) is drawn in the tint instead.
+  const remembered = store.getState().catSlots || {};
+  // How far back the data on file goes, in months of the twelve the verdict
+  // reads: a month before the first message is not a month under budget.
+  const first = dated.reduce((a, t) => (a && a < t.date ? a : t.date), '').slice(0, 7);
+  const covered = months.slice(-12).filter((m) => !first || m >= first).length;
+  const lines = budgetHistory(store.budgets(), txns, months, store.budgetAmountLog()).map((h) => {
+    const cat = h.categories[0];
+    const slot = cat && remembered[cat] != null ? remembered[cat] : null;
+    return { ...h, slot, verdict: historyVerdict(h.months, covered), now: h.months[h.months.length - 1] };
+  });
+  const data = { end, months, lines };
+  historyCache = { key: `${store.revision()}:${end}`, data };
+  return data;
+}
+
+// Slots 1, 4 and 7 of the series palette are orange, pink and red. A line
+// drawn in one of those would have its under-budget bars read as over, so
+// those lines draw them in the tint instead. Over is always --bad.
+const RED_ADJACENT_SLOTS = new Set([1, 4, 7]);
+const underColour = (slot) => (slot == null || RED_ADJACENT_SLOTS.has(slot) ? 'var(--tint)' : viz.seriesColour(slot));
+const discColour = (slot) => (slot == null ? 'var(--tint)' : viz.seriesColour(slot));
+
+const monthDate = (k) => new Date(Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, 1));
+// Spelled out rather than asked of toLocaleDateString, whose en-GB "Sept" is
+// four letters where every other month is three.
+const MONTHS_3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const monthShort = (k) => MONTHS_3[+k.slice(5, 7) - 1] || '';
+const monthName = (k, withYear = false) =>
+  monthDate(k).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC', ...(withYear ? { year: 'numeric' } : {}) });
+const HIST_CHEVRON = `<svg class="hist-go" width="7" height="12" viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L6.5 6.5L1.5 11.5"/></svg>`;
+
+/** Twelve bars and the budget as a dashed line, for one line in the list. */
+function historySpark(h) {
+  const W = 240;
+  const H = 34;
+  const last = h.months.slice(-12);
+  const slot = W / last.length;
+  const bw = slot - 6;
+  const max = Math.max(1, ...last.map((m) => Math.max(m.spent, m.amount))) * 1.08;
+  const y = (v) => H - (v / max) * H;
+  const under = underColour(h.slot);
+  const bars = last
+    .map(
+      (m, i) =>
+        `<rect x="${(i * slot + 3).toFixed(1)}" y="${y(m.spent).toFixed(1)}" width="${bw.toFixed(1)}" height="${(H - y(m.spent)).toFixed(1)}" rx="2" fill="${m.over ? 'var(--bad)' : under}"/>`
+    )
+    .join('');
+  const by = y(h.now.amount).toFixed(1);
+  return `<svg class="hist-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${bars}
+    <line x1="0" x2="${W}" y1="${by}" y2="${by}" stroke="var(--ink2)" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function renderHistory() {
+  const box = $('#history');
+  if (!box) return;
+  const { lines } = historyData();
+  const set = lines.filter((h) => h.amount > 0);
+  const unset = lines.filter((h) => !(h.amount > 0));
+  const ratio = (h) => h.now.spent / h.now.amount;
+  // Worst first: the most months over, then the furthest through this one.
+  set.sort((a, b) => b.verdict.over - a.verdict.over || ratio(b) - ratio(a));
+  const glyphs = glyphMap(set.map((h) => h.label));
+  box.innerHTML = `${
+    set.length
+      ? `<section class="bl-group hist-list">${set
+          .map(
+            (h) => `<button type="button" class="hist-b" data-history-line="${escapeHtml(h.id)}">
+          <span class="hist-top">
+            <span class="cdisc" style="--hue:${discColour(h.slot)}" aria-hidden="true">${emojiOf(glyphs[h.label] || glyphFor(h.label))}</span>
+            <span class="hist-name">${escapeHtml(h.label)}</span>
+            <span class="hist-now"><b class="${h.now.over ? 'bad' : ''}">${viz.fmt(h.now.spent)}</b> / ${viz.fmt(h.now.amount)}</span>
+            ${HIST_CHEVRON}
+          </span>
+          ${historySpark(h)}
+          <span class="hist-v ${h.verdict.tone}">${escapeHtml(h.verdict.text)}</span>
+        </button>`
+          )
+          .join('')}</section>`
+      : '<p class="hint">No line has an amount yet. Set one on the Budget screen and its months show here.</p>'
+  }${
+    unset.length
+      ? `<p class="hint hist-unset"><b>No amount set:</b> ${unset.map((h) => escapeHtml(h.label)).join(', ')}. Give one an amount on the Budget screen to see it here.</p>`
+      : ''
+  }`;
+  box.querySelectorAll('[data-history-line]').forEach((el) =>
+    el.addEventListener('click', () => {
+      state.historyLine = el.dataset.historyLine;
+      showView('history-line');
+    })
+  );
+  warnIfWiderThanScreen();
+}
+
+/** The eighteen-month chart: bars, the budget as a dashed step, month letters. */
+function historyChart(h, nowMonth) {
+  const VW = 336;
+  const W = 300;
+  const top = 16;
+  const base = 112;
+  const n = h.months.length;
+  const slot = W / n;
+  const bw = Math.min(12, slot - 5);
+  const max = Math.max(1, ...h.months.map((m) => Math.max(m.spent, m.amount))) * 1.1;
+  const y = (v) => base - (v / max) * (base - top);
+  const under = underColour(h.slot);
+  let out = `<svg class="hist-chart" viewBox="0 0 ${VW} 146" role="img" aria-label="${escapeHtml(h.label)}, spent each month against the budget">`;
+  out += `<line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="var(--axis)" stroke-width="1"/>`;
+  h.months.forEach((m, i) => {
+    const x = i * slot + (slot - bw) / 2;
+    const isNow = m.month === nowMonth;
+    out += `<rect x="${x.toFixed(1)}" y="${y(m.spent).toFixed(1)}" width="${bw}" height="${(base - y(m.spent)).toFixed(1)}" rx="2.5" fill="${m.over ? 'var(--bad)' : under}"${isNow ? '' : ' opacity=".9"'}/>`;
+    out += `<text x="${(i * slot + slot / 2).toFixed(1)}" y="${base + 14}" text-anchor="middle"${isNow ? ' class="now"' : ''}>${monthShort(m.month).charAt(0)}</text>`;
+    if (i === 0 || m.month.endsWith('-01')) {
+      out += `<text class="yr" x="${(i * slot + 2).toFixed(1)}" y="${base + 29}">${m.month.slice(0, 4)}</text>`;
+    }
+  });
+  // The budget as a step line, so a change of amount shows where it happened.
+  let path = '';
+  let prev = null;
+  h.months.forEach((m, j) => {
+    const yy = y(m.amount).toFixed(1);
+    const x0 = (j * slot).toFixed(1);
+    const x1 = ((j + 1) * slot).toFixed(1);
+    path += (prev === null ? `M${x0} ${yy}` : prev !== yy ? `L${x0} ${yy}` : '') + `L${x1} ${yy}`;
+    prev = yy;
+  });
+  out += `<path d="${path}" fill="none" stroke="var(--ink2)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+  out += `<text x="${VW}" y="${(y(h.now.amount) + 3.5).toFixed(1)}" text-anchor="end">${viz.fmt(h.now.amount)}</text>`;
+  return `${out}</svg>`;
+}
+
+function renderHistoryLine() {
+  const box = $('#history-line');
+  if (!box) return;
+  const { lines, end } = historyData();
+  const h = lines.find((x) => x.id === state.historyLine);
+  const title = $('#history-line-title');
+  const sub = $('#history-line-sub');
+  if (!h) {
+    if (title) title.textContent = 'History';
+    if (sub) sub.textContent = '';
+    box.innerHTML = '<p class="hint">That line is no longer there.</p>';
+    return;
+  }
+  if (title) title.textContent = h.label;
+  // "since March" only once the amount has really changed: a first amount
+  // says nothing about the months before it.
+  const log = store.budgetAmountLog()[h.id] || [];
+  const latest = log.filter((e) => e.since <= end).at(-1);
+  const sinceWhen =
+    latest && log.indexOf(latest) > 0
+      ? ` since ${monthName(latest.since, latest.since.slice(0, 4) !== end.slice(0, 4))}`
+      : '';
+  if (sub) sub.textContent = h.amount > 0 ? `Budget ${viz.fmt(h.amount)} a month${sinceWhen}` : 'No budget set';
+
+  const todayMonth = cycleMonthOf(isoDay(new Date()));
+  const v = h.verdict;
+  const rows = h.months
+    .slice(-12)
+    .reverse()
+    .map((m) => {
+      const o = m.spent - m.amount;
+      return `<div class="hist-row">
+        <span class="m">${escapeHtml(monthShort(m.month))} ${m.month.slice(0, 4)}${m.month === todayMonth ? '<small>so far</small>' : ''}</span>
+        <span>${viz.fmt(m.spent)}</span>
+        <span class="b">${m.amount > 0 ? viz.fmt(m.amount) : '—'}</span>
+        <span class="o${m.over ? '' : ' none'}">${m.over ? viz.fmt(o) : '—'}</span>
+      </div>`;
+    })
+    .join('');
+  // The calendar year the screen ends in, January up to and including that month.
+  const year = end.slice(0, 4);
+  const thisYear = h.months.filter((m) => m.month.startsWith(year) && m.month <= end);
+  const yearSum = thisYear.reduce((a, m) => a + m.spent, 0);
+  const avgLabel = thisYear.length > 1 ? `Jan–${monthShort(end)}` : monthShort(end);
+  box.innerHTML = `<div class="hist-card">
+    <div class="hist-card-top"><span class="hist-lab">Last ${h.months.length} months</span>
+      <span class="hist-key"><em style="--k:${underColour(h.slot)}">Under</em><em style="--k:var(--bad)">Over</em><em class="bud">Budget</em></span></div>
+    <p class="hist-verdict ${v.tone}">${escapeHtml(v.text)}</p>
+    ${historyChart(h, end)}
+    <div class="hist-table">
+      <div class="hist-row hist-head"><span>Month</span><span>Spent</span><span>Budget</span><span>Over</span></div>
+      ${rows}
+    </div>
+    <p class="hist-yh">Yearly</p>
+    <div class="hist-yr"><span>Spent in ${year}</span><b>${viz.fmt(yearSum)}</b></div>
+    <div class="hist-yr"><span>Average a month, ${avgLabel}</span><b>${viz.fmt(thisYear.length ? yearSum / thisYear.length : 0)}</b></div>
+  </div>`;
+  warnIfWiderThanScreen();
 }
 
 function renderRecurring(all) {
@@ -3279,6 +3544,18 @@ function showView(view, push = true) {
   // Cash is computed, not stored, so it has to be worked out on the way in -
   // including when you arrive by the back button or a link rather than a tap.
   if (target === 'cash') renderCash();
+  // History reaches past the reading window, so it is worked out only when it
+  // is opened - never as part of every render. A reload or a back onto the
+  // line's screen with no line chosen lands on the list instead.
+  if (target === 'history') renderHistory();
+  if (target === 'history-line') {
+    if (!state.historyLine) {
+      history.replaceState(null, '', '#history');
+      showView('history', false);
+      return;
+    }
+    renderHistoryLine();
+  }
   const want = target === 'home' ? ' ' : `#${target}`;
   if (push && location.hash.replace('#', '') !== target && !(target === 'home' && !location.hash)) {
     history.pushState(null, '', want);
@@ -4629,7 +4906,6 @@ function renderHomeBudgets(report, budgeted, month) {
   box.innerHTML = rows
     .map((r) => {
       const left = r.amount - r.spent;
-      const pct = Math.min(100, (r.spent / r.amount) * 100);
       const over = left < 0;
       // The card shows a figure, so it opens what the figure counted - the
       // categories this line covers, in the month it is counting. It used to
@@ -4640,14 +4916,15 @@ function renderHomeBudgets(report, budgeted, month) {
         ? `data-drill-cats="${escapeHtml(covers.join('|'))}" data-drill-label="${escapeHtml(r.label)}"` +
           ` data-drill-budget="${escapeHtml(r.id)}"`
         : 'data-go="budget"'; // a line with nothing mapped has nothing to show
+      // The dial takes its colour from where the ring takes its slice's, so
+      // a hue means one thing on the whole screen.
+      const cat = covers[0];
+      const colour = cat ? viz.seriesColour(store.chartSlots([cat])[cat] ?? 7) : 'var(--tint)';
+      const dial = `<span class="bt-dial">${tileDial(r.spent / r.amount, over ? 'var(--bad)' : colour)}
+            <em>${emojiOf(tileGlyphs[r.label] || glyphFor(r.label))}</em></span>`;
       if (mint) {
-        // The dial takes its colour from where the ring takes its slice's, so
-        // a hue means one thing on the whole screen.
-        const cat = covers[0];
-        const colour = cat ? viz.seriesColour(store.chartSlots([cat])[cat] ?? 7) : 'var(--tint)';
         return `<button class="btile${over ? ' over' : ''}" type="button" ${opens}>
-          <span class="bt-dial">${tileDial(r.spent / r.amount, over ? 'var(--bad)' : colour)}
-            <em>${emojiOf(tileGlyphs[r.label] || glyphFor(r.label))}</em></span>
+          ${dial}
           <span class="bt-text">
             <span class="bt-name">${escapeHtml(r.label)}</span>
             <span class="bt-amt">${viz.fmt(r.spent)}</span>
@@ -4655,18 +4932,19 @@ function renderHomeBudgets(report, budgeted, month) {
           </span>
         </button>`;
       }
-      return `<button class="bcard" type="button" ${opens}>
-        <span class="bc-icon ${over ? 'neg' : ''}" aria-hidden="true">${over ? '!' : '●'}</span>
+      // The ring says how far through the line you are, so the row no longer
+      // needs the bar under it; the words and the figure stay.
+      return `<button class="bcard bc-dial" type="button" ${opens}>
+        ${dial}
         <span class="bc-text">
           <span class="bc-name">${escapeHtml(r.label)}</span>
-          <span class="bc-sub">${over ? `${viz.fmt(-left)} over` : `${viz.fmt(left)} left to spend`}</span>
+          <span class="bc-sub${over ? ' neg' : ''}">${over ? `${viz.fmt(-left)} over` : `${viz.fmt(left)} left to spend`}</span>
         </span>
         <span class="bc-fig">
-          <span class="bc-amt">${viz.fmt(r.spent)}</span>
+          <span class="bc-amt${over ? ' neg' : ''}">${viz.fmt(r.spent)}</span>
           <span class="bc-of">of ${viz.fmt(r.amount)}</span>
         </span>
         <span class="bc-go">›</span>
-        <span class="bc-bar"><i class="${over ? 'over' : ''}" style="width:${pct}%"></i></span>
       </button>`;
     })
     .join('');

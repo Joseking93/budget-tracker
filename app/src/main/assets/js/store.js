@@ -33,6 +33,11 @@ const empty = () => ({
   payableFixes: 0, // left from a one-off correction round that has been removed
   budgets: null,
   budgetSeed: 0, // which BUDGET_SEED_VERSION the stored budget LINES came from
+  // line id -> [{since: 'YYYY-MM', amount}], oldest first: each time a line's
+  // amount changed and the month it took effect. Kept beside `budgets` rather
+  // than inside it, so the seed-version rebuild of the lines never touches it.
+  // The History view reads each past month against what the budget WAS then.
+  budgetAmountLog: {},
   // refundTxnId -> the spend it pays back
   refundLinks: {},
   // Your phone numbers, account numbers and known people. Deliberately not in the
@@ -488,11 +493,37 @@ export function budgets() {
   return state.budgets;
 }
 
-export function setBudget(id, amount) {
+/**
+ * Change a line's amount.
+ *
+ * @param since  the budget month the new amount takes effect, 'YYYY-MM'. When
+ *               the amount actually changes it goes in the line's amount log,
+ *               so the months before keep the amount they had.
+ */
+export function setBudget(id, amount, since = null) {
   const b = budgets().find((x) => x.id === id);
   if (!b) return;
-  b.amount = Math.max(0, Number(amount) || 0);
+  const value = Math.max(0, Number(amount) || 0);
+  if (value !== b.amount && since) {
+    const all = budgetAmountLog();
+    const log = all[id] || (all[id] = []);
+    // The first change: what the line said before is the budget for every
+    // month until now, so it goes in first, dated from the beginning.
+    if (!log.length && b.amount > 0) log.push({ since: '0000-01', amount: b.amount });
+    // Twice in one month is a correction, not a second change.
+    const same = log.findIndex((e) => e.since === since);
+    if (same >= 0) log[same].amount = value;
+    else log.push({ since, amount: value });
+    log.sort((x, y) => (x.since < y.since ? -1 : x.since > y.since ? 1 : 0));
+  }
+  b.amount = value;
   save();
+}
+
+/** Every line's amount changes: id -> [{since, amount}], oldest first. */
+export function budgetAmountLog() {
+  if (!state.budgetAmountLog || typeof state.budgetAmountLog !== 'object') state.budgetAmountLog = {};
+  return state.budgetAmountLog;
 }
 
 export function setBudgetCategories(id, categories) {
@@ -1078,6 +1109,17 @@ export function importJSON(text) {
       mine.set(b.id, m ? { ...m, amount: b.amount } : b);
     }
     state.budgets = [...mine.values()];
+  }
+  // --- amount log: union per line, keyed by month; the incoming file wins a
+  // month both have, as it does for the amount itself.
+  if (incoming.budgetAmountLog && typeof incoming.budgetAmountLog === 'object') {
+    const mine = budgetAmountLog();
+    for (const [id, theirs] of Object.entries(incoming.budgetAmountLog)) {
+      if (!Array.isArray(theirs)) continue;
+      const byMonth = new Map((mine[id] || []).map((e) => [e.since, e]));
+      for (const e of theirs) if (e && e.since) byMonth.set(e.since, { since: e.since, amount: e.amount });
+      mine[id] = [...byMonth.values()].sort((x, y) => (x.since < y.since ? -1 : x.since > y.since ? 1 : 0));
+    }
   }
 
   // --- settings: identifiers are additive (a device may know a number the other

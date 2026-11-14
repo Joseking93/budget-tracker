@@ -126,3 +126,99 @@ export function budgetReport(budgets, txns, month) {
     cycleStart,
   };
 }
+
+/**
+ * The amount a line had in force in a month, from its amount log.
+ *
+ * Budgets store only the CURRENT amount, so a line that went from 3,500 to
+ * 4,000 in March would read every earlier month against 4,000 and call them
+ * all under. The log (store.budgetAmountLog) keeps each change with the month
+ * it took effect; the latest entry whose `since` is on or before the month
+ * wins, and a month before any entry falls back to the current amount.
+ */
+export function amountInForce(log, month, current) {
+  let hit = null;
+  for (const e of log || []) if (e && e.since <= month && (!hit || e.since >= hit.since)) hit = e;
+  return hit ? hit.amount : current;
+}
+
+/**
+ * Spent per line per month, for a run of months, in one pass.
+ *
+ * budgetReport answers one month and walks every transaction to do it, so
+ * asking it eighteen times walks them eighteen times - which is what made the
+ * app lag once. This expands the spending to category-parts and resolves each
+ * part's budget month ONCE, then buckets it, so the cost is one walk however
+ * many months are asked for. It counts exactly what budgetReport counts:
+ * money Out, by category-part, on the budget month the part resolves to.
+ *
+ * @param {Array} budgets   the lines, as store.budgets() gives them
+ * @param {Array} txns      decorated transactions (categories and splits on)
+ * @param {string[]} months ISO 'YYYY-MM', oldest first
+ * @param {Object} [amountLog] id -> [{since, amount}], see amountInForce
+ */
+export function budgetHistory(budgets, txns, months, amountLog = {}) {
+  const at = new Map(months.map((m, i) => [m, i]));
+  // A category can sit on more than one line, and budgetReport counts it on
+  // each, so this does too.
+  const linesOf = new Map();
+  budgets.forEach((b, i) => {
+    for (const c of b.categories || []) {
+      if (!linesOf.has(c)) linesOf.set(c, []);
+      linesOf.get(c).push(i);
+    }
+  });
+  const spent = budgets.map(() => new Float64Array(months.length));
+  const budgetMonthOf = monthResolver(txns);
+  for (const t of txns) {
+    if (t.direction !== 'Out') continue;
+    for (const p of categoryParts(t)) {
+      const lines = linesOf.get(p.category);
+      if (!lines) continue;
+      const i = at.get(budgetMonthOf(p));
+      if (i === undefined) continue;
+      for (const l of lines) spent[l][i] += p.amount;
+    }
+  }
+  return budgets.map((b, l) => ({
+    id: b.id,
+    label: b.label,
+    categories: b.categories || [],
+    amount: b.amount,
+    months: months.map((month, i) => {
+      const amount = amountInForce(amountLog[b.id], month, b.amount);
+      const s = spent[l][i];
+      return { month, spent: s, amount, over: amount > 0 && s > amount };
+    }),
+  }));
+}
+
+/**
+ * One sentence that reads a line's last twelve months for you.
+ *
+ * `months` is the line's history, oldest first, ending at the month being
+ * looked at. Only its last twelve are read. `covered` is how many of those
+ * twelve the data on file actually reaches back over: with three months of
+ * messages, "under every month for a year" would be claiming nine months
+ * nobody has seen. Returns the words, a tone ('bad' | 'good' | '') and how
+ * many months were over, which is what the History list sorts on.
+ */
+export function historyVerdict(months, covered = 12) {
+  const last = months.slice(-12);
+  const now = last[last.length - 1];
+  const spentAny = last.filter((m) => m.spent > 0);
+  if (!spentAny.length) return { text: 'Nothing spent yet', tone: '', over: 0 };
+  const over = last.filter((m) => m.over).length;
+  // Paid in full and no more, every month there was a payment: a salary, a
+  // rent. "Under" would be wrong and "over" would be wrong.
+  if (spentAny.every((m) => m.amount > 0 && Math.abs(m.spent - m.amount) <= 1)) {
+    return { text: 'The full amount, every month', tone: '', over };
+  }
+  if (!over) return { text: covered >= 12 ? 'Under every month for a year' : 'Under every month so far', tone: 'good', over };
+  const year = now.month.slice(0, 4);
+  if (!last.some((m) => m.over && m.month.startsWith(year))) {
+    return { text: 'Under every month this year', tone: 'good', over };
+  }
+  const text = `Over ${over} of the last 12 months${now.over ? ', this one too' : ''}`;
+  return { text, tone: over >= 4 ? 'bad' : '', over };
+}
