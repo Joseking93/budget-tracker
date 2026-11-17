@@ -517,9 +517,21 @@ function render() {
  * it a rule for the sender would misfile everything they send you afterwards.
  * Anything else becomes a name rule, so the person's other rows follow.
  */
-function recategorise(id, cat) {
+async function recategorise(id, cat) {
   const oneOff = ONE_OFF_CATEGORIES.has(cat);
-  const { applied, name } = store.setCategory(id, cat, !oneOff, personName);
+  // Who else this would reach. A category chosen for one payment used to
+  // become the rule for everyone by that name without asking; now, when there
+  // is anyone else, it asks - this payment, or all of them.
+  const txn = store.getState().transactions[id];
+  const who = txn && txn.counterparty ? personName(txn.counterparty) || txn.counterparty : '';
+  const others = who ? store.countMatching(who) : 0;
+  let all = !oneOff;
+  if (all && others > 1) {
+    const scope = await askScope(cat, who, others);
+    if (!scope) return false;
+    all = scope === 'all';
+  }
+  const { applied, name } = store.setCategory(id, cat, all, personName);
   render();
   renderNameRules();
   toast(
@@ -527,8 +539,47 @@ function recategorise(id, cat) {
       ? `“${name}” → ${cat}. ${applied} transaction${applied === 1 ? '' : 's'} follow, past and future.`
       : oneOff
         ? `${cat} — this transaction only, no rule made.`
-        : `Recategorised.`
+        : all
+          ? `Recategorised.`
+          : `${cat} — this payment only.`
   );
+  return true;
+}
+
+/**
+ * "This payment, or every payment to them?" Resolves 'one', 'all', or null
+ * when dismissed. Back on the phone lands on the Cancel button through
+ * wireBackOverlays, which looks for [data-cancel-pick].
+ */
+function askScope(cat, who, count) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal scope" role="dialog" aria-modal="true" aria-label="Which payments to change">
+        <h3>${escapeHtml(cat)}</h3>
+        <p class="hint">${escapeHtml(who)} has ${count} payments. Change just this one, or all of them?</p>
+        <div class="scope-btns">
+          <button type="button" class="primary" data-scope="all">All ${count}, past and future</button>
+          <button type="button" data-scope="one">Only this payment</button>
+          <button type="button" class="ghost" data-cancel-pick="1">Cancel</button>
+        </div>
+      </div>`;
+    const done = (value) => {
+      overlay.remove();
+      tellAndroidAboutOverlays();
+      resolve(value);
+    };
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) done(null);
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.cancelPick) done(null);
+      else if (b.dataset.scope) done(b.dataset.scope);
+    });
+    document.body.appendChild(overlay);
+    tellAndroidAboutOverlays();
+  });
 }
 
 /** "Today", "Yesterday", or "Tuesday 10 Nov" - a day header in the list. */
@@ -708,9 +759,11 @@ function openTxnSheet(id) {
       b.addEventListener('click', () => {
         if (!txn.isSplit && b.dataset.cat === txn.category) return;
         saveNote();
-        recategorise(id, b.dataset.cat);
-        txn = find() || txn;
-        draw();
+        recategorise(id, b.dataset.cat).then(() => {
+          if (!overlay.isConnected) return;
+          txn = find() || txn;
+          draw();
+        });
       })
     );
     overlay.querySelector('[data-more]').addEventListener('click', () => {
@@ -723,9 +776,11 @@ function openTxnSheet(id) {
       openCategoryPicker(sel).then((value) => {
         if (!value || (!txn.isSplit && value === txn.category) || !overlay.isConnected) return;
         saveNote();
-        recategorise(id, value);
-        txn = find() || txn;
-        draw();
+        recategorise(id, value).then(() => {
+          if (!overlay.isConnected) return;
+          txn = find() || txn;
+          draw();
+        });
       });
     });
     const note = overlay.querySelector('#txs-note');
@@ -5016,7 +5071,9 @@ function openOverlays() {
   const shown = (el) => el && !el.hidden && getComputedStyle(el).display !== 'none';
   return [
     $('#catpick'), // opened over the dialogs, so it closes first
-    ...document.querySelectorAll('.modal-overlay:not(#catpick)'),
+    // Newest first: a question asked over a sheet sits on top of it, so Back
+    // must answer the question before it closes the sheet.
+    ...[...document.querySelectorAll('.modal-overlay:not(#catpick)')].reverse(),
     $('#more-sheet'),
   ].filter(shown);
 }

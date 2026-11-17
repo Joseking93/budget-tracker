@@ -822,6 +822,12 @@ tr:last-child td { border-bottom: 0; }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(.985); } }
 .modal h3 { margin: 0 0 3px; font-size: 15px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+/* "This payment, or all of them?" - the choices stacked, the one that reaches
+   furthest first and clearest, Cancel last and quiet. */
+.modal.scope { width: min(100%, 360px); }
+.modal.scope .hint { margin: 4px 0 0; }
+.scope-btns { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.scope-btns button { width: 100%; padding: 12px 14px; font-weight: 700; }
 .modal .pick-list { max-height: 320px; overflow-y: auto; margin-top: 4px; }
 .modal .pick-row {
   display: flex; gap: 10px; align-items: baseline; width: 100%; text-align: left;
